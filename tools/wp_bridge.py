@@ -10,6 +10,7 @@ Umgebungsvariablen:
 
 Beispiele:
   wp_bridge.py status
+  wp_bridge.py auth-check                # Diagnose, falls 401 trotz Anwendungspasswort
   wp_bridge.py get wp/v2/pages --query per_page=100 --query _fields=id,slug,title
   wp_bridge.py post wp/v2/pages --json '{"title":"Kontakt","slug":"kontakt","status":"publish"}'
   wp_bridge.py elementor-get 42 -o seite.json
@@ -109,6 +110,7 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("status")
+    sub.add_parser("auth-check", help="Diagnose: kommt die Anmeldung bei WordPress an?")
     for m in ("get", "post", "put", "delete"):
         s = sub.add_parser(m, help="beliebiger REST-Aufruf, z. B. wp/v2/pages")
         s.add_argument("path")
@@ -136,6 +138,8 @@ def main():
 
     if a.cmd == "status":
         out(c.request("GET", "bw-bridge/v1/status"))
+    elif a.cmd == "auth-check":
+        out(c.request("GET", "bw-bridge/v1/auth-check"))
     elif a.cmd in ("get", "post", "put", "delete"):
         q = [tuple(x.split("=", 1)) for x in a.query]
         body = load_json(a.json, a.file) if (a.json or a.file) else None

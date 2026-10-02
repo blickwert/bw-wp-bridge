@@ -18,6 +18,14 @@ if ( defined( 'BW_WP_BRIDGE_DISABLED' ) && BW_WP_BRIDGE_DISABLED ) {
 	return;
 }
 
+// Für die Diagnose-Route auth-check: welche Anmelde-Header PHP überhaupt erreicht haben (nur ja/nein).
+$GLOBALS['bw_bridge_auth_seen'] = [
+	'authorization'          => ! empty( $_SERVER['HTTP_AUTHORIZATION'] ),
+	'redirect_authorization' => ! empty( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ),
+	'php_auth_user'          => ! empty( $_SERVER['PHP_AUTH_USER'] ),
+	'x_wp_authorization'     => ! empty( $_SERVER['HTTP_X_WP_AUTHORIZATION'] ),
+];
+
 /*
  * Dev-Server mit .htpasswd-Schutz: Dort belegt die Server-Anmeldung den Authorization-Header.
  * Der Client schickt das WordPress-Anwendungspasswort dann zusätzlich als X-WP-Authorization;
@@ -30,6 +38,42 @@ if ( ! empty( $_SERVER['HTTP_X_WP_AUTHORIZATION'] ) && 0 === stripos( $_SERVER['
 	}
 	unset( $bw_bridge_creds );
 }
+
+/*
+ * Apache mit CGI/FastCGI: Der Authorization-Header landet oft nur in (REDIRECT_)HTTP_AUTHORIZATION,
+ * nicht in PHP_AUTH_USER/PHP_AUTH_PW, die WordPress für Anwendungspasswörter auswertet.
+ */
+if ( empty( $_SERVER['PHP_AUTH_USER'] ) ) {
+	foreach ( [ 'HTTP_AUTHORIZATION', 'REDIRECT_HTTP_AUTHORIZATION' ] as $bw_bridge_key ) {
+		if ( ! empty( $_SERVER[ $bw_bridge_key ] ) && 0 === stripos( $_SERVER[ $bw_bridge_key ], 'Basic ' ) ) {
+			$bw_bridge_creds = base64_decode( substr( $_SERVER[ $bw_bridge_key ], 6 ), true );
+			if ( $bw_bridge_creds && false !== strpos( $bw_bridge_creds, ':' ) ) {
+				list( $_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW'] ) = explode( ':', $bw_bridge_creds, 2 );
+				break;
+			}
+		}
+	}
+	unset( $bw_bridge_key, $bw_bridge_creds );
+}
+
+/*
+ * Ermittelt ein anderes Plugin den aktuellen Benutzer schon vor parse_request (also bevor
+ * REST_REQUEST gesetzt ist), prüft WordPress das Anwendungspasswort nicht und die Anfrage
+ * bleibt anonym. Darum REST-Aufrufe schon an der URL erkennen.
+ */
+add_filter(
+	'application_password_is_api_request',
+	static function ( $is_api ) {
+		if ( $is_api ) {
+			return $is_api;
+		}
+		if ( isset( $_GET['rest_route'] ) ) {
+			return true;
+		}
+		$uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+		return false !== strpos( $uri, '/' . rest_get_url_prefix() . '/' );
+	}
+);
 
 final class BW_WP_Bridge {
 
@@ -91,6 +135,18 @@ final class BW_WP_Bridge {
 	/* REST-Routen                                                         */
 	/* ------------------------------------------------------------------ */
 
+	public static function auth_check() {
+		global $wp_rest_application_password_status;
+		$status = $wp_rest_application_password_status;
+		return [
+			'headers_seen'                => $GLOBALS['bw_bridge_auth_seen'],
+			'application_passwords'       => wp_is_application_passwords_available(),
+			'logged_in'                   => is_user_logged_in(),
+			'is_admin'                    => current_user_can( 'manage_options' ),
+			'application_password_result' => is_wp_error( $status ) ? $status->get_error_code() : ( true === $status ? 'ok' : null ),
+		];
+	}
+
 	public static function register_routes() {
 		$admin = [ __CLASS__, 'can_manage' ];
 
@@ -98,6 +154,13 @@ final class BW_WP_Bridge {
 			'methods'             => 'GET',
 			'callback'            => [ __CLASS__, 'status' ],
 			'permission_callback' => $admin,
+		] );
+
+		// Öffentlich, gibt nur Ja/Nein-Werte aus: hilft, wenn die Anmeldung nicht ankommt.
+		register_rest_route( self::NS, '/auth-check', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'auth_check' ],
+			'permission_callback' => '__return_true',
 		] );
 
 		register_rest_route( self::NS, '/elementor/(?P<id>\d+)', [
