@@ -21,6 +21,7 @@ function wp_upload_dir( $t = null, $c = true ) { return [ 'basedir' => $GLOBALS[
 function wp_generate_password( $n = 12, $s = true ) { return substr( str_shuffle( 'abcdefghijklmnopqrstuvwxyz0123456789' ), 0, $n ); }
 function wp_get_theme() { return new class { function cache_delete() {} }; }
 function wp_hash( $s ) { return 'abcdef0123456789abcdef'; }
+function plugin_dir_path( $f ) { return dirname( $f ) . '/'; }
 function rest_ensure_response( $d ) { return $d; }
 function is_wp_error( $x ) { return $x instanceof WP_Error; }
 class WP_Error { public $code, $msg, $data; function __construct( $c, $m = '', $d = [] ) { $this->code = $c; $this->msg = $m; $this->data = $d; } function get_error_code() { return $this->code; } }
@@ -54,10 +55,10 @@ $F = 'BW_Bridge_Theme_Files';
 check( 'Standard: Lesen ist aus', true !== $F::perm_read() && code( $F::perm_read() ) === 'bw_bridge_files_disabled' );
 check( 'Standard: Schreiben ist aus', code( $F::perm_write() ) === 'bw_bridge_files_disabled' );
 /* 2. Nur lesen */
-update_option( $F::OPT_READ, 1 );
+update_option( BW_Bridge_Settings::OPT_READ, 1 );
 check( 'Lesen an: erlaubt', true === $F::perm_read() );
 check( 'Lesen an, Schreiben aus: Schreiben gesperrt', code( $F::perm_write() ) === 'bw_bridge_files_readonly' );
-update_option( $F::OPT_WRITE, 1 );
+update_option( BW_Bridge_Settings::OPT_WRITE, 1 );
 check( 'Schreiben an: erlaubt', true === $F::perm_write() );
 $GLOBALS['caps']['edit_themes'] = false;
 check( 'Ohne edit_themes: Schreiben gesperrt', code( $F::perm_write() ) === 'bw_bridge_files_forbidden' );
@@ -65,9 +66,9 @@ $GLOBALS['caps']['edit_themes'] = true;
 $GLOBALS['caps']['manage_options'] = false;
 check( 'Ohne manage_options: kein Zugriff', false === $F::perm_read() );
 $GLOBALS['caps']['manage_options'] = true;
-update_option( $F::OPT_READ, 0 );
-check( 'Schreiben ohne Lesen wirkt nicht', ! $F::can_write_enabled() );
-update_option( $F::OPT_READ, 1 );
+update_option( BW_Bridge_Settings::OPT_READ, 0 );
+check( 'Schreiben ohne Lesen wirkt nicht', ! BW_Bridge_Settings::can_write_enabled() );
+update_option( BW_Bridge_Settings::OPT_READ, 1 );
 
 /* 3. Listing und Lesen */
 $l = $F::get( new WP_REST_Request( [ 'path' => '' ] ) );
@@ -131,7 +132,7 @@ check( 'Ordner löschen wird abgewiesen', is_wp_error( $res ) && is_dir( "$t/the
 /* 8. Parent-Theme */
 $res = $F::get( new WP_REST_Request( [ 'theme' => 'parent', 'path' => 'style.css' ] ) );
 check( 'Parent ohne Freigabe gesperrt', code( $res ) === 'bw_bridge_files_parent_off' );
-update_option( $F::OPT_PARENT, 1 );
+update_option( BW_Bridge_Settings::OPT_PARENT, 1 );
 $res = $F::get( new WP_REST_Request( [ 'theme' => 'parent', 'path' => 'style.css' ] ) );
 check( 'Parent mit Freigabe lesbar', code( $res ) === 'ok' && $res['theme'] === 'parent' );
 $res = $F::put( new WP_REST_Request( [ 'theme' => 'parent', 'path' => 'neu.css' ], [ 'content' => 'a{}' ] ) );
@@ -142,7 +143,7 @@ check( 'Ohne Parent-Theme: 404', code( $res ) === 'bw_bridge_files_no_parent' );
 $GLOBALS['has_parent'] = true;
 
 /* 9. Hart abschalten, wp-config-Sperre, Status */
-check( 'Status meldet Freigaben', BW_Bridge_Theme_Files::summary()['write'] === true && BW_Bridge_Theme_Files::summary()['theme'] === 'child' );
+check( 'Status meldet Freigaben', BW_Bridge_Settings::summary()['write'] === true && BW_Bridge_Settings::summary()['theme'] === 'child' );
 define( 'DISALLOW_FILE_EDIT', true );
 check( 'DISALLOW_FILE_EDIT sperrt Schreiben', code( $F::perm_write() ) === 'bw_bridge_files_forbidden' && true === $F::perm_read() );
 define( 'BW_WP_BRIDGE_FILES_DISABLED', true );
