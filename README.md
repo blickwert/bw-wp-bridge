@@ -6,7 +6,9 @@ dazu über dieses Plugin:
 
 | Route (`/wp-json/bw-bridge/v1/…`) | Zweck |
 |---|---|
-| `GET status` | Versionen (WP, Elementor, Pro), aktives Kit, Theme |
+| `GET status` | Versionen (WP, Elementor, Pro), aktives Kit, Theme, Stand der Theme-Dateifreigabe |
+| `GET/POST/DELETE theme/files` | Theme-Dateien auflisten, lesen, schreiben, löschen – **nur nach Freigabe im Backend** (siehe unten) |
+| `GET/POST theme/backups` | Sicherungen einer Theme-Datei auflisten bzw. zurückspielen |
 | `GET/POST elementor/{id}` | Elementor-Layout einer Seite/eines Beitrags/einer Vorlage lesen bzw. speichern (klassische Widgets) |
 | `GET/POST elementor/kit` | Global Colors, Global Fonts, Theme Style, Layout (Merge oder Ersetzen) |
 | `POST elementor/templates` | Elementor-Vorlagen-JSON in die Vorlagen-Bibliothek importieren |
@@ -22,7 +24,7 @@ Alle Routen verlangen einen angemeldeten **Administrator**. Die Anmeldung läuft
    - Repo nach `wp-content/plugins/bw-wp-bridge/` klonen bzw. kopieren und aktivieren,
    - ZIP hochladen (*Plugins › Installieren › Plugin hochladen*); `git archive` lässt `tools/` weg:
      `git archive --prefix=bw-wp-bridge/ -o bw-wp-bridge.zip HEAD`,
-   - oder nur `bw-wp-bridge.php` nach `wp-content/mu-plugins/` legen.
+   - oder nur `bw-wp-bridge.php` nach `wp-content/mu-plugins/` legen (die Einstellungsseite und der Theme-Dateizugriff stecken in dieser einen Datei).
 2. In WordPress unter *Benutzer › Profil › Anwendungspasswörter* ein Passwort erzeugen
    (am besten für einen eigenen Admin-Benutzer, z. B. `claude`).
 3. In der Claude-Code-Cloud-Umgebung (*Titelleiste › Umgebung › Edit*):
@@ -39,6 +41,45 @@ Zum Abschalten ohne Deaktivieren: `define( 'BW_WP_BRIDGE_DISABLED', true );` in 
 
 > Nur für Dev-/Staging-Server gedacht. Wer das Anwendungspasswort hat, hat Admin-Rechte über die API.
 > Das Passwort lässt sich im Profil jederzeit widerrufen.
+
+## Theme-Dateien lesen und schreiben (optional)
+
+Damit sich z. B. WooCommerce-E-Mail-Templates (`woocommerce/emails/…`) oder Übersetzungsdateien im Child-Theme
+bearbeiten lassen, kann die Bridge Dateien des aktiven Themes lesen und schreiben. **Standardmäßig ist das aus.**
+
+**Freischalten** (nur im Backend, nicht über die API): *Einstellungen › BW WP Bridge*
+
+| Option | Bedeutung |
+|---|---|
+| Theme-Dateien lesen | Ordner auflisten, Dateien lesen |
+| Theme-Dateien schreiben | Dateien anlegen, ändern, löschen; setzt „lesen“ voraus |
+| Parent-Theme einbeziehen | zusätzlich das Parent-Theme (`--parent` im Client bzw. `theme=parent`) |
+
+**Berechtigungen und Schutz**
+- Nur Administratoren (`manage_options`); Schreiben, Löschen und Wiederherstellen zusätzlich mit `edit_themes`.
+  Ist in der `wp-config.php` `DISALLOW_FILE_EDIT` oder `DISALLOW_FILE_MODS` gesetzt, ist Schreiben gesperrt.
+- Hart abschalten, egal was im Backend steht: `define( 'BW_WP_BRIDGE_FILES_DISABLED', true );`
+- Pfade sind relativ zum Theme-Ordner. Nicht möglich: `..`, absolute Pfade, versteckte Dateien, `.git`, `node_modules`,
+  `vendor`, Symlinks aus dem Theme heraus.
+- Schreiben nur für `php, css, js, json, html, txt, md, po, pot, mo, svg, xml, twig`, bis 1 MB (Lesen bis 2 MB).
+- **PHP-Dateien werden vor dem Speichern auf Syntaxfehler geprüft** (ohne Ausführung); bei einem Fehler wird nichts geschrieben.
+- **Vor jedem Überschreiben oder Löschen** entsteht eine Sicherung unter `wp-content/uploads/bw-bridge-backups-<Kennung>/<theme>/…`
+  (nicht erratbarer Ordnername, zusätzlich per `.htaccess` gesperrt). Mit `theme-restore` lässt sie sich zurückspielen.
+- Geschrieben wird atomar (Temporärdatei, dann Umbenennen); optional `expected_sha1`, damit nichts überschrieben wird,
+  was sich seit dem Lesen geändert hat.
+
+> Wer das Anwendungspasswort hat und „schreiben“ eingeschaltet findet, kann PHP-Code im Theme ändern. Nur auf Dev-/Staging-Servern
+> einschalten und nach der Arbeit wieder ausschalten.
+
+```bash
+wp_bridge.py status                                  # theme_files: read / write / parent_theme
+wp_bridge.py theme-ls woocommerce/emails -r
+wp_bridge.py theme-get woocommerce/emails/customer-new-account.php -o alt.php
+wp_bridge.py theme-put woocommerce/emails/customer-new-account.php neu.php
+wp_bridge.py theme-backups woocommerce/emails/customer-new-account.php
+wp_bridge.py theme-restore woocommerce/emails/customer-new-account.php
+```
+
 
 ## Client
 
@@ -59,6 +100,9 @@ wp_bridge.py post wp/v2/event --json '{"title":"Fachtagung 2027","status":"publi
 ```
 
 ## Getestet
+
+Theme-Dateizugriff: `php tests/test-theme-files.php` (simulierte WordPress-Umgebung; Rechte, Pfadschutz, Symlinks,
+Syntaxprüfung, Sicherung, Wiederherstellen).
 
 Lokal mit WordPress 7.2-alpha, Elementor 4.4 und Hello Elementor (ohne Elementor Pro):
 Status, CPT und Taxonomie samt Einträgen über `wp/v2/…`, Kit-Update, Seite aus Template,
