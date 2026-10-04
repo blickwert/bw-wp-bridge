@@ -22,9 +22,10 @@ Alle Routen verlangen einen angemeldeten **Administrator**. Die Anmeldung läuft
 
 1. Plugin installieren, eine der Varianten:
    - Repo nach `wp-content/plugins/bw-wp-bridge/` klonen bzw. kopieren und aktivieren,
-   - ZIP hochladen (*Plugins › Installieren › Plugin hochladen*); `git archive` lässt `tools/` weg:
-     `git archive --prefix=bw-wp-bridge/ -o bw-wp-bridge.zip HEAD`,
-   - oder nur `bw-wp-bridge.php` nach `wp-content/mu-plugins/` legen (die Einstellungsseite und der Theme-Dateizugriff stecken in dieser einen Datei).
+   - ZIP hochladen (*Plugins › Installieren › Plugin hochladen*): `git archive --prefix=bw-wp-bridge/ -o bw-wp-bridge.zip HEAD`
+     (lässt `tools/`, `tests/` und `prompts/` weg),
+   - oder als Must-Use-Plugin: den Ordner `bw-wp-bridge/` nach `wp-content/mu-plugins/` legen und dort eine Datei
+     `bw-wp-bridge-loader.php` mit dem Inhalt `<?php require WPMU_PLUGIN_DIR . '/bw-wp-bridge/bw-wp-bridge.php';` anlegen.
 2. In WordPress unter *Benutzer › Profil › Anwendungspasswörter* ein Passwort erzeugen
    (am besten für einen eigenen Admin-Benutzer, z. B. `claude`).
 3. In der Claude-Code-Cloud-Umgebung (*Titelleiste › Umgebung › Edit*):
@@ -81,6 +82,25 @@ wp_bridge.py theme-restore woocommerce/emails/customer-new-account.php
 ```
 
 
+## Aufbau
+
+```text
+bw-wp-bridge.php                          Plugin-Kopf, Konstanten, Autoloader, Start
+uninstall.php                             räumt die Freigaben beim Löschen des Plugins weg
+includes/auth-bootstrap.php               läuft beim Laden: Anwendungspasswort hinter .htpasswd / CGI
+includes/class-bw-bridge.php              Kern: Module starten, Rechteprüfung, Route status
+includes/class-bw-bridge-auth.php         Route auth-check (Diagnose der Anmeldung)
+includes/class-bw-bridge-elementor.php    Layouts, Kit, Vorlagen-Import, CSS-Cache
+includes/class-bw-bridge-content-types.php  eigene Post Types und Taxonomien
+includes/class-bw-bridge-theme-files.php  Theme-Dateien lesen/schreiben, Sicherungen
+admin/class-bw-bridge-settings.php        Einstellungsseite und Freigaben
+tools/wp_bridge.py                        Kommandozeilen-Client
+tests/                                    Tests (siehe unten)
+```
+
+Neue Funktionen kommen als eigene Klasse in `includes/` (bzw. `admin/`), werden in der Liste im Autoloader von
+`bw-wp-bridge.php` eingetragen und in `BW_WP_Bridge::register_routes()` bzw. `init()` eingehängt.
+
 ## Client
 
 `tools/wp_bridge.py` braucht nur Python 3 (keine Pakete):
@@ -101,8 +121,10 @@ wp_bridge.py post wp/v2/event --json '{"title":"Fachtagung 2027","status":"publi
 
 ## Getestet
 
-Theme-Dateizugriff: `php tests/test-theme-files.php` (simulierte WordPress-Umgebung; Rechte, Pfadschutz, Symlinks,
-Syntaxprüfung, Sicherung, Wiederherstellen).
+Ohne WordPress-Installation, in einer simulierten Umgebung (`php tests/…`):
+- `php tests/test-theme-files.php`: Theme-Dateizugriff (Rechte, Pfadschutz, Symlinks, Syntaxprüfung, Sicherung, Wiederherstellen).
+- `php tests/registrations.php --check`: Hooks, REST-Routen, Einstellungen und Menü bleiben bei Umbauten unverändert
+  (nach gewollten Änderungen `php tests/registrations.php > tests/registrations.expected.json`).
 
 Lokal mit WordPress 7.2-alpha, Elementor 4.4 und Hello Elementor (ohne Elementor Pro):
 Status, CPT und Taxonomie samt Einträgen über `wp/v2/…`, Kit-Update, Seite aus Template,
