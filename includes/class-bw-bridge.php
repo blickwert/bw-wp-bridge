@@ -13,6 +13,7 @@ final class BW_WP_Bridge {
 	public static function init() {
 		add_action( 'rest_api_init', [ __CLASS__, 'register_routes' ] );
 		BW_Bridge_Content_Types::init();
+		BW_Bridge_Wpml_Strings::init();
 		BW_Bridge_Settings::init();
 	}
 
@@ -37,6 +38,7 @@ final class BW_WP_Bridge {
 		BW_Bridge_Search::register_routes();
 		BW_Bridge_Meta::register_routes();
 		BW_Bridge_Batch::register_routes();
+		BW_Bridge_Wpml_Strings::register_routes();
 		BW_Bridge_Content_Types::register_routes();
 		BW_Bridge_Theme_Files::register_routes();
 	}
@@ -49,11 +51,12 @@ final class BW_WP_Bridge {
 		$el = BW_Bridge_Elementor::elementor();
 		return rest_ensure_response( [
 			'bridge'        => self::VERSION,
-			'features'      => [ 'elementor-texts', 'elementor-backups', 'elementor-dry-run', 'search', 'translations', 'translation-link', 'render', 'meta', 'batch' ],
+			'features'      => [ 'elementor-texts', 'elementor-backups', 'elementor-dry-run', 'search', 'translations', 'translation-link', 'wpml-strings', 'wpml-options', 'render', 'meta', 'batch' ],
 			'wordpress'     => get_bloginfo( 'version' ),
 			'elementor'     => defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : null,
 			'elementor_pro' => defined( 'ELEMENTOR_PRO_VERSION' ) ? ELEMENTOR_PRO_VERSION : null,
 			'wpml'          => defined( 'ICL_SITEPRESS_VERSION' ) ? ICL_SITEPRESS_VERSION : null,
+			'wpml_strings'  => BW_Bridge_Wpml_Strings::available(),
 			'active_kit'    => is_wp_error( $el ) ? null : (int) $el->kits_manager->get_active_id(),
 			'theme'         => get_stylesheet(),
 			'theme_files'   => BW_Bridge_Settings::summary(),

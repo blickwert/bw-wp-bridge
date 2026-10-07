@@ -8,7 +8,7 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	exit;
 }
 
-foreach ( [ 'bw_bridge_files_read', 'bw_bridge_files_write', 'bw_bridge_files_parent', 'bw_bridge_flush_rewrite' ] as $bw_bridge_option ) {
+foreach ( [ 'bw_bridge_files_read', 'bw_bridge_files_write', 'bw_bridge_files_parent', 'bw_bridge_flush_rewrite', 'bw_bridge_wpml_options' ] as $bw_bridge_option ) {
 	delete_option( $bw_bridge_option );
 }
 

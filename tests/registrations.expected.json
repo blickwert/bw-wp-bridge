@@ -26,6 +26,12 @@
         ],
         [
             "action",
+            "init",
+            "register_options",
+            20
+        ],
+        [
+            "action",
             "rest_api_init",
             "register_routes",
             10
@@ -260,6 +266,41 @@
             "bw-bridge/v1/translations/(?P<id>\\d+)",
             "POST",
             "link_translation",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/wpml/options",
+            "DELETE",
+            "remove_options",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/wpml/options",
+            "GET",
+            "list_options",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/wpml/options",
+            "POST",
+            "add_options",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/wpml/strings",
+            "GET",
+            "list_strings",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/wpml/strings",
+            "POST",
+            "set_translations",
             "can_manage",
             []
         ]

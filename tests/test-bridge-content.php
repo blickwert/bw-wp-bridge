@@ -4,13 +4,15 @@
  * WordPress-Umgebung (Speicher statt Datenbank). Aufruf: php tests/test-bridge-content.php
  */
 define( 'ABSPATH', __DIR__ . '/' );
+defined( 'ARRAY_A' ) || define( 'ARRAY_A', 'ARRAY_A' );
 
 /* ---------- WordPress-Stubs ---------- */
 $GLOBALS['posts'] = []; $GLOBALS['meta'] = []; $GLOBALS['filters'] = []; $GLOBALS['caps'] = [ 'manage_options' => true ];
 $GLOBALS['routes'] = []; $GLOBALS['now'] = 1700000000;
 function add_action( ...$a ) {} function add_filter( ...$a ) {} function register_setting( ...$a ) {} function add_options_page( ...$a ) {}
 function register_rest_route( $ns, $route, $args = [] ) { $GLOBALS['routes'][ $ns . $route ] = $args; }
-function rest_get_url_prefix() { return 'wp-json'; } function plugin_dir_path( $f ) { return dirname( $f ) . '/'; } function get_option( $k, $d = false ) { return $d; }
+function rest_get_url_prefix() { return 'wp-json'; } function plugin_dir_path( $f ) { return dirname( $f ) . '/'; } function get_option( $k, $d = false ) { return array_key_exists( $k, $GLOBALS['opts'] ?? [] ) ? $GLOBALS['opts'][ $k ] : $d; }
+function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
 function current_user_can( $c ) { return ! empty( $GLOBALS['caps'][ $c ] ); }
 function rest_ensure_response( $d ) { return $d; } function is_wp_error( $x ) { return $x instanceof WP_Error; }
 function wp_json_encode( $d, $f = 0 ) { return json_encode( $d, $f ); } function wp_slash( $v ) { return is_string( $v ) ? addslashes( $v ) : $v; }
@@ -34,6 +36,7 @@ function did_action( $a ) { return 1; }
 function time_now() { return $GLOBALS['now']; }
 function apply_filters( $tag, $v = null, ...$args ) { return isset( $GLOBALS['filters'][ $tag ] ) ? call_user_func( $GLOBALS['filters'][ $tag ], $v, ...$args ) : $v; }
 function do_action( $tag, ...$args ) { if ( isset( $GLOBALS['actions'][ $tag ] ) ) { call_user_func( $GLOBALS['actions'][ $tag ], ...$args ); } }
+function has_action( $tag ) { return isset( $GLOBALS['actions'][ $tag ] ); }
 function has_filter( $tag ) { return isset( $GLOBALS['filters'][ $tag ] ); }
 function gmdate_stub() {}
 class WP_Error { public $code, $msg, $data; function __construct( $c, $m = '', $d = [] ) { $this->code = $c; $this->msg = $m; $this->data = $d; } function get_error_code() { return $this->code; } }
@@ -57,10 +60,13 @@ class Fake_Doc { public $id; function __construct( $id ) { $this->id = $id; } fu
 	function save( $d ) { $GLOBALS['meta'][ $this->id ]['_elementor_data'] = [ json_encode( $d['elements'] ) ]; $GLOBALS['meta'][ $this->id ]['_elementor_page_settings'] = [ $d['settings'] ]; return true; } }
 \Elementor\Plugin::$instance = new class { public $documents; function __construct() { $this->documents = new class { function get( $id, $x ) { return new Fake_Doc( $id ); } }; } };
 // wpdb: prüft, dass Platzhalter und Parameter zusammenpassen, und liefert vorgegebene IDs
-class Fake_Wpdb { public $posts = 'wp_posts', $postmeta = 'wp_postmeta', $ids = [], $last_sql = '', $last_args = [];
+class Fake_Wpdb { public $prefix = 'wp_', $posts = 'wp_posts', $postmeta = 'wp_postmeta', $ids = [], $last_sql = '', $last_args = [], $handler = null;
 	function esc_like( $s ) { return addcslashes( $s, '_%\\' ); }
-	function prepare( $sql, $args ) { $n = preg_match_all( '/%[sd]/', $sql ); if ( $n !== count( $args ) ) { throw new Exception( "Platzhalter $n != Parameter " . count( $args ) ); } $this->last_sql = $sql; $this->last_args = $args; return $sql; }
-	function get_col( $sql ) { return $this->ids; } }
+	function prepare( $sql, ...$args ) { if ( 1 === count( $args ) && is_array( $args[0] ) ) { $args = $args[0]; } $n = preg_match_all( '/%[sd]/', $sql ); if ( $n !== count( $args ) ) { throw new Exception( "Platzhalter $n != Parameter " . count( $args ) ); } $this->last_sql = $sql; $this->last_args = $args; $i = 0; return preg_replace_callback( '/%([sd])/', static function ( $m ) use ( $args, &$i ) { $v = $args[ $i++ ]; return 'd' === $m[1] ? (int) $v : "'" . $v . "'"; }, $sql ); }
+	function get_col( $sql ) { return $this->ids; }
+	function get_results( $sql, $o = null ) { return $this->handler ? ( $this->handler )( $sql ) : []; }
+	function get_var( $sql ) { return $this->handler ? ( $this->handler )( $sql ) : null; }
+	function get_row( $sql, $o = null ) { return $this->handler ? ( $this->handler )( $sql ) : null; } }
 $GLOBALS['wpdb'] = new Fake_Wpdb();
 
 require __DIR__ . '/../bw-wp-bridge.php';
@@ -223,9 +229,92 @@ $GLOBALS['filters'] = [];
 $res = BW_Bridge_Search::link_translation( link_req( 2124, [ 'translation_of' => 2121 ] ) );
 check( 'link: ohne WPML => 409', is_wp_error( $res ) && $res->data['status'] === 409 );
 
+
+/* ---------- WPML-Strings und -Optionen ---------- */
+$wp = $GLOBALS['wpdb'];
+$req = static function ( $q = [], $json = null ) { $x = new WP_REST_Request( 'GET' ); $x->q = $q; $x->json = $json; return $x; };
+
+// ohne WPML String Translation (Funktion noch nicht definiert)
+check( 'strings: ohne WPML ST nicht verfügbar', ! BW_Bridge_Wpml_Strings::available() );
+check( 'strings: Liste ohne WPML ST => 409', is_wp_error( BW_Bridge_Wpml_Strings::list_strings( $req() ) ) && BW_Bridge_Wpml_Strings::list_strings( $req() )->data['status'] === 409 );
+check( 'strings: Setzen ohne WPML ST => 409', is_wp_error( BW_Bridge_Wpml_Strings::set_translations( $req( [], [ 'translations' => [ [ 'id' => 1 ] ] ] ) ) ) );
+check( 'optionen: Anmelden ohne WPML ST => 409', BW_Bridge_Wpml_Strings::add_options( $req( [], [ 'options' => [ 'x' ] ] ) )->data['status'] === 409 );
+$GLOBALS['actions']['wpml_multilingual_options'] = null; unset( $GLOBALS['actions']['wpml_multilingual_options'] );
+BW_Bridge_Wpml_Strings::register_options();
+check( 'optionen: ohne WPML-Hook passiert beim Laden nichts', ! isset( $GLOBALS['multi'] ) );
+
+// WPML ST "aktivieren"
+$GLOBALS['icl_calls'] = [];
+eval( 'function icl_add_string_translation( $id, $lang, $value, $status ) { $GLOBALS["icl_calls"][] = [ $id, $lang, $value, $status ]; return 1; }' );
+check( 'strings: mit WPML ST verfügbar', BW_Bridge_Wpml_Strings::available() );
+
+// reine SQL-Bausteine
+$base = [ 'q' => '', 'like' => '', 'context' => '', 'lang' => '', 'status' => '', 'limit' => 10, 'offset' => 0 ];
+foreach ( [ [], [ 'context' => 'admin_texts_*' ], [ 'context' => 'ctx' ], [ 'q' => 'x', 'like' => '%x%' ], [ 'lang' => 'de', 'status' => 'missing' ], [ 'lang' => 'de', 'status' => 'incomplete' ], [ 'lang' => 'de', 'status' => 'open', 'q' => 'x', 'like' => '%x%', 'context' => 'a*' ], [ 'lang' => 'de', 'status' => 'complete' ] ] as $i => $over ) {
+	[ $sql, $args ] = BW_Bridge_Wpml_Strings::build_list_query( 'wp_', $over + $base );
+	check( "build_list_query #$i: Platzhalter = Parameter", preg_match_all( '/%[sd]/', $sql ) === count( $args ) );
+}
+[ $sql, $args ] = BW_Bridge_Wpml_Strings::build_list_query( 'wp_', [ 'context' => 'admin_texts_*', 'lang' => 'de', 'status' => 'missing' ] + $base );
+check( 'build_list_query: Präfix-Kontext und Status "missing"', strpos( $sql, 's.context LIKE %s' ) !== false && strpos( $sql, 't.id IS NULL' ) !== false && $args[0] === 'de' && $args[1] === 'admin_texts_%' );
+check( 'build_list_query: limit+1 für "weitere vorhanden"', array_slice( $args, -2 ) === [ 11, 0 ] );
+[ $sql ] = BW_Bridge_Wpml_Strings::build_list_query( 'wp_', $base );
+check( 'build_list_query: ohne Sprache kein Join', strpos( $sql, 'JOIN' ) === false );
+
+// Liste
+$wp->handler = static function ( $sql ) {
+	if ( strpos( $sql, 'FROM wp_icl_string_translations' ) !== false ) { return [ [ 'string_id' => '5', 'language' => 'de', 'status' => '10', 'value' => 'Hallo' ], [ 'string_id' => '6', 'language' => 'de', 'status' => '3', 'value' => 'Alt' ] ]; }
+	return [ [ 'id' => '5', 'context' => 'admin_texts_opt', 'name' => '[opt]a', 'value' => 'Hello', 'language' => 'en' ], [ 'id' => '6', 'context' => 'admin_texts_opt', 'name' => '[opt]b', 'value' => 'Bye', 'language' => 'en' ], [ 'id' => '7', 'context' => 'admin_texts_opt', 'name' => '[opt]c', 'value' => 'Third', 'language' => 'en' ] ];
+};
+$res = BW_Bridge_Wpml_Strings::list_strings( $req( [ 'limit' => 2 ] ) );
+check( 'strings: Liste mit Übersetzungen je Sprache und Status', $res['count'] === 2 && $res['strings'][0]['translations']->de === [ 'value' => 'Hallo', 'status' => 10 ] && $res['strings'][1]['translations']->de['status'] === 3 );
+check( 'strings: has_more bei mehr Treffern als limit', $res['has_more'] === true );
+check( 'strings: Treffer ohne Übersetzung haben leere translations', (array) BW_Bridge_Wpml_Strings::list_strings( $req( [ 'limit' => 3 ] ) )['strings'][2]['translations'] === [] );
+check( 'strings: status ohne lang => 400', BW_Bridge_Wpml_Strings::list_strings( $req( [ 'status' => 'missing' ] ) )->data['status'] === 400 );
+
+// Setzen
+$GLOBALS['filters']['wpml_active_languages'] = static fn() => [ 'en' => [], 'de' => [] ];
+$wp->handler = static function ( $sql ) {
+	if ( preg_match( '/FROM wp_icl_strings WHERE id = (\d+)/', $sql, $m ) ) { return (int) $m[1] === 5 ? [ 'id' => '5', 'language' => 'en', 'value' => 'Hello' ] : null; }
+	if ( strpos( $sql, 'context = ' ) !== false && strpos( $sql, 'SELECT id FROM' ) !== false ) { return strpos( $sql, "'[opt]a'" ) !== false ? '5' : null; }
+	if ( strpos( $sql, 'FROM wp_icl_string_translations' ) !== false ) { return 'Altwert'; }
+	return null;
+};
+$res = BW_Bridge_Wpml_Strings::set_translations( $req( [], [ 'translations' => [ [ 'id' => 5, 'language' => 'de', 'value' => 'Hallo' ] ] ] ) );
+check( 'translate: Übersetzung gesetzt (Status übersetzt)', $res['failed'] === 0 && $GLOBALS['icl_calls'] === [ [ 5, 'de', 'Hallo', 10 ] ] && $res['results'][0]['old'] === 'Altwert' && $res['results'][0]['source'] === 'Hello' );
+$GLOBALS['icl_calls'] = [];
+BW_Bridge_Wpml_Strings::set_translations( $req( [], [ 'translations' => [ [ 'id' => 5, 'language' => 'de', 'value' => 'Hallo', 'complete' => false ] ] ] ) );
+check( 'translate: complete=false => Status "muss aktualisiert werden"', $GLOBALS['icl_calls'] === [ [ 5, 'de', 'Hallo', 3 ] ] );
+$GLOBALS['icl_calls'] = [];
+$res = BW_Bridge_Wpml_Strings::set_translations( $req( [], [ 'translations' => [ [ 'context' => 'admin_texts_opt', 'name' => '[opt]a', 'language' => 'de', 'value' => 'Hallo' ] ] ] ) );
+check( 'translate: String über context + name gefunden', $res['failed'] === 0 && $GLOBALS['icl_calls'][0][0] === 5 );
+$GLOBALS['icl_calls'] = [];
+$res = BW_Bridge_Wpml_Strings::set_translations( $req( [], [ 'translations' => [ [ 'id' => 5, 'language' => 'de', 'value' => 'Probe' ] ], 'dry_run' => true ] ) );
+check( 'translate: Probelauf schreibt nichts', $res['dry_run'] && $res['results'][0]['status'] === 'ok' && $GLOBALS['icl_calls'] === [] );
+$res = BW_Bridge_Wpml_Strings::set_translations( $req( [], [ 'translations' => [ [ 'id' => 99, 'language' => 'de', 'value' => 'x' ], [ 'id' => 5, 'language' => 'en', 'value' => 'x' ], [ 'id' => 5, 'language' => 'fr', 'value' => 'x' ], [ 'id' => 5, 'language' => 'de' ], [ 'language' => 'de', 'value' => 'x' ] ] ] ) );
+check( 'translate: Fehlerfälle (unbekannt, Ausgangssprache, inaktive Sprache, ohne Wert, ohne id) schreiben nichts', $res['failed'] === 5 && $GLOBALS['icl_calls'] === [] );
+check( 'translate: leere Liste => 400', BW_Bridge_Wpml_Strings::set_translations( $req( [], [ 'translations' => [] ] ) )->data['status'] === 400 );
+$res = BW_Bridge_Wpml_Strings::set_translations( $req( [], [ 'translations' => [ [ 'id' => 5, 'language' => 'de', 'value' => 'Gut' ], [ 'id' => 99, 'language' => 'de', 'value' => 'x' ] ] ] ) );
+check( 'translate: gemischte Liste: gültige werden gesetzt, Fehler gemeldet', $res['failed'] === 1 && count( $GLOBALS['icl_calls'] ) === 1 );
+
+// Optionen
+$GLOBALS['multi'] = []; $GLOBALS['actions']['wpml_multilingual_options'] = static function ( $n ) { $GLOBALS['multi'][] = $n; };
+$wp->handler = static fn( $sql ) => strpos( $sql, "'admin_texts_my_settings'" ) !== false ? '4' : '0';
+$res = BW_Bridge_Wpml_Strings::add_options( $req( [], [ 'options' => [ 'my_settings', 'other_opt' ] ] ) );
+check( 'optionen: angemeldet, gespeichert und sofort bei WPML registriert', $GLOBALS['opts']['bw_bridge_wpml_options'] === [ 'my_settings', 'other_opt' ] && $GLOBALS['multi'] === [ 'my_settings', 'other_opt' ] );
+check( 'optionen: Liste mit Stringzahl je Option (0 = WPML kennt noch keine)', $res['options'][0] === [ 'option' => 'my_settings', 'context' => 'admin_texts_my_settings', 'strings' => 4 ] && $res['options'][1]['strings'] === 0 );
+$GLOBALS['multi'] = []; BW_Bridge_Wpml_Strings::register_options();
+check( 'optionen: bei jedem Laden erneut registriert', $GLOBALS['multi'] === [ 'my_settings', 'other_opt' ] );
+BW_Bridge_Wpml_Strings::add_options( $req( [], [ 'options' => [ 'my_settings', 'third' ] ] ) );
+check( 'optionen: doppelte werden nicht doppelt gespeichert', $GLOBALS['opts']['bw_bridge_wpml_options'] === [ 'my_settings', 'other_opt', 'third' ] );
+BW_Bridge_Wpml_Strings::remove_options( $req( [], [ 'options' => [ 'other_opt' ] ] ) );
+check( 'optionen: entfernen', $GLOBALS['opts']['bw_bridge_wpml_options'] === [ 'my_settings', 'third' ] );
+foreach ( [ 'a b', '../x', '', 'x;y' ] as $bad ) { $e = BW_Bridge_Wpml_Strings::add_options( $req( [], [ 'options' => [ $bad ] ] ) ); if ( ! is_wp_error( $e ) || $e->data['status'] !== 400 ) { check( "optionen: ungültiger Name '$bad' abgelehnt", false ); } }
+check( 'optionen: ungültige Namen werden abgelehnt (400)', true );
+check( 'optionen: leere Liste => 400', BW_Bridge_Wpml_Strings::add_options( $req( [], [ 'options' => [] ] ) )->data['status'] === 400 );
+
 /* ---------- Routen ---------- */
 BW_WP_Bridge::register_routes();
-foreach ( [ 'search', 'batch', 'translations/(?P<id>\d+)', 'render/(?P<id>\d+)', 'meta/(?P<id>\d+)', 'elementor/(?P<id>\d+)/texts', 'elementor/(?P<id>\d+)/backups', 'elementor/(?P<id>\d+)/restore' ] as $route ) {
+foreach ( [ 'wpml/strings', 'wpml/options', 'search', 'batch', 'translations/(?P<id>\d+)', 'render/(?P<id>\d+)', 'meta/(?P<id>\d+)', 'elementor/(?P<id>\d+)/texts', 'elementor/(?P<id>\d+)/backups', 'elementor/(?P<id>\d+)/restore' ] as $route ) {
 	check( "Route registriert: $route", isset( $GLOBALS['routes'][ 'bw-bridge/v1/' . $route ] ) );
 }
 

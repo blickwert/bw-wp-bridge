@@ -16,6 +16,8 @@ dazu über dieses Plugin:
 | `GET/POST translations/{id}` | WPML: Übersetzungen eines Beitrags lesen (`{ de: 34, en: 12 }`) bzw. den Beitrag mit `{ "translation_of": 12 }` (und optional `"language": "de"`) als Übersetzung eines anderen verbinden; verweigert (409), wenn in dieser Sprache schon eine andere Übersetzung existiert. Nur mit aktivem WPML (`status` zeigt es im Feld `wpml`); ohne WPML melden die Routen das und tun nichts |
 | `GET render/{id}` | sichtbarer Text der Seite im Frontend (`?q=` filtert Zeilen) |
 | `GET/POST meta/{id}` | Post-Meta lesen/setzen/löschen, auch für Felder, die ein Plugin nicht in der REST-API freigibt (`"dry_run"` möglich) |
+| `GET/POST/DELETE wpml/options` | WPML String Translation: Backend-Optionen (Plugin-Einstellungen, Mailtexte …) als mehrsprachig anmelden, auflisten, entfernen |
+| `GET/POST wpml/strings` | WPML-Strings suchen (Kontext, Text, Übersetzungsstand je Sprache) und Übersetzungen setzen |
 | `POST batch` | bis zu 50 REST-Aufrufe (auch `wp/v2/…`, `wc/v3/…`) in einer Anfrage; jede Operation läuft mit den Rechteprüfungen ihrer Route |
 | `GET/POST elementor/kit` | Global Colors, Global Fonts, Theme Style, Layout (Merge oder Ersetzen) |
 | `POST elementor/templates` | Elementor-Vorlagen-JSON in die Vorlagen-Bibliothek importieren |
@@ -84,6 +86,30 @@ wp_bridge.py meta-set 56 --set _shop_hinweis=Text
 wp_bridge.py batch operationen.json    # {"operations":[{"method":"POST","path":"wp/v2/pages/12","body":{…}}, …]}
 ```
 
+## WPML: Texte aus dem Backend übersetzen (ab 1.3)
+
+Viele Texte stehen nicht in Seiten, sondern in Eingabefeldern im Backend: Plugin-Einstellungen, Betreff und Text von Mails,
+Beschriftungen. WPML String Translation kann solche Texte übersetzen – die Bridge schließt dafür zwei Lücken:
+
+1. **Anmelden:** `wpml-options-add <option>` merkt sich den Optionsnamen und macht die Option bei jedem Laden über die
+   WPML-Aktion `wpml_multilingual_options` mehrsprachig. WPML legt daraus Strings im Kontext `admin_texts_<option>` an und
+   übernimmt spätere Änderungen im Backend. `wpml-options` zeigt je Option, wie viele Strings WPML kennt (0 = noch keine,
+   dann Backend-Seite einmal aufrufen/speichern oder die Option prüfen).
+2. **Übersetzen:** `wpml-strings` findet Strings (`--context "admin_texts_*"`, `-q Text`, `--lang de --status open` für offene),
+   `wpml-translate` setzt die Übersetzung über `icl_add_string_translation()` – die REST-Routen von WPML selbst sind für
+   Anwendungspasswörter gesperrt. Mit `--dry-run` wird nichts gespeichert; ein String lässt sich per `id` oder per
+   `context` + `name` ansprechen; die Ausgangssprache und nicht aktive Sprachen werden abgelehnt.
+
+Strings, die ein Plugin selbst bei WPML registriert (`wpml_register_single_string`), erscheinen ohne Anmeldung in `wpml-strings`.
+Ohne aktive String Translation antworten die Routen mit 409; `status` zeigt es im Feld `wpml_strings`.
+
+```bash
+wp_bridge.py wpml-options-add my_plugin_settings
+wp_bridge.py wpml-strings --context "admin_texts_my_plugin_settings" --lang de --status open
+wp_bridge.py wpml-translate 17 --lang de "Übersetzter Text" --dry-run
+wp_bridge.py wpml-translate --file uebersetzungen.json     # [{"id":17,"language":"de","value":"…"}, {"context":"…","name":"…","language":"de","value":"…"}]
+```
+
 ## Theme-Dateien lesen und schreiben (optional)
 
 Damit sich z. B. WooCommerce-E-Mail-Templates (`woocommerce/emails/…`) oder Übersetzungsdateien im Child-Theme
@@ -134,6 +160,7 @@ includes/class-bw-bridge-auth.php         Route auth-check (Diagnose der Anmeldu
 includes/class-bw-bridge-elementor.php    Layouts (mit Sicherungen und Probelauf), Kit, Vorlagen-Import, CSS-Cache
 includes/class-bw-bridge-elementor-texts.php  Texte lesen/setzen/vergleichen (reine Logik, ohne WordPress testbar)
 includes/class-bw-bridge-search.php       Suche, WPML-Zuordnung, Frontend-Text
+includes/class-bw-bridge-wpml-strings.php WPML-Strings: Optionen anmelden, Strings suchen, Übersetzungen setzen
 includes/class-bw-bridge-meta.php         Post-Meta lesen/schreiben
 includes/class-bw-bridge-batch.php        Stapelaufrufe
 includes/class-bw-bridge-content-types.php  eigene Post Types und Taxonomien

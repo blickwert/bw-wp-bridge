@@ -37,6 +37,14 @@ Texte, Suche, Meta, Stapel (ab Bridge 1.2):
   wp_bridge.py meta-set 56 --set _shop_hinweis=Text --dry-run
   wp_bridge.py batch operationen.json                  # {"operations":[{"method","path","query"?,"body"?}, …]}
 
+WPML-Strings (Texte aus dem Backend, nur mit aktivem WPML String Translation):
+  wp_bridge.py wpml-options-add my_plugin_settings     # Option mehrsprachig machen (WPML-Kontext admin_texts_my_plugin_settings)
+  wp_bridge.py wpml-options                            # angemeldete Optionen und Zahl ihrer Strings
+  wp_bridge.py wpml-strings --lang de --status open    # Strings ohne vollständige Übersetzung
+  wp_bridge.py wpml-strings -q Hinweis --context "admin_texts_*"
+  wp_bridge.py wpml-translate 17 --lang de "Übersetzter Text" --dry-run
+  wp_bridge.py wpml-translate --file uebersetzungen.json   # [{"id"|"context"+"name","language","value","complete"?}, …]
+
 Theme-Dateien (nur wenn im Backend unter Einstellungen › BW WP Bridge freigeschaltet):
   wp_bridge.py theme-ls woocommerce/emails -r          # Ordner auflisten (-r rekursiv)
   wp_bridge.py theme-get woocommerce/emails/customer-new-account.php -o alt.php
@@ -319,6 +327,15 @@ def main():
     s = sub.add_parser("translation-link", help="Beitrag als WPML-Übersetzung eines anderen verbinden"); s.add_argument("id", type=int)
     s.add_argument("--of", dest="of", type=int, required=True, help="ID des Beitrags in der Ausgangssprache")
     s.add_argument("--lang", help="Sprache des Beitrags setzen (z. B. de); ohne Angabe bleibt sie")
+    s = sub.add_parser("wpml-options", help="Für WPML angemeldete Backend-Optionen"); 
+    s = sub.add_parser("wpml-options-add", help="Optionen für WPML mehrsprachig machen"); s.add_argument("names", nargs="+")
+    s = sub.add_parser("wpml-options-rm", help="Optionen aus der Liste nehmen (vorhandene Strings bleiben)"); s.add_argument("names", nargs="+")
+    s = sub.add_parser("wpml-strings", help="WPML-Strings suchen")
+    s.add_argument("-q"); s.add_argument("--context", help="Kontext oder Präfix mit * (z. B. admin_texts_*)"); s.add_argument("--lang"); s.add_argument("--status", choices=["missing", "incomplete", "open", "complete"], help="Übersetzungsstand in --lang")
+    s.add_argument("--limit", type=int, default=100); s.add_argument("--offset", type=int, default=0); s.add_argument("--json", dest="json_out", action="store_true")
+    s = sub.add_parser("wpml-translate", help="Übersetzung eines WPML-Strings setzen")
+    s.add_argument("id", type=int, nargs="?"); s.add_argument("value", nargs="?"); s.add_argument("--lang"); s.add_argument("--incomplete", action="store_true", help="Status 'muss aktualisiert werden' statt 'übersetzt'")
+    s.add_argument("--file", help="JSON mit Liste von Übersetzungen"); s.add_argument("--dry-run", action="store_true")
     s = sub.add_parser("render", help="Sichtbarer Text einer Seite im Frontend"); s.add_argument("id", type=int)
     s.add_argument("-q", help="nur Zeilen mit diesem Text"); s.add_argument("--limit", type=int, default=400)
     s = sub.add_parser("meta-get", help="Post-Meta eines Beitrags lesen"); s.add_argument("id", type=int)
@@ -403,6 +420,44 @@ def main():
         if a.lang:
             body["language"] = a.lang
         out(c.request("POST", "bw-bridge/v1/translations/%d" % a.id, body))
+    elif a.cmd in ("wpml-options", "wpml-options-add", "wpml-options-rm"):
+        if a.cmd == "wpml-options":
+            r = c.request("GET", "bw-bridge/v1/wpml/options")
+        else:
+            r = c.request("POST" if a.cmd.endswith("add") else "DELETE", "bw-bridge/v1/wpml/options", {"options": a.names})
+        print("WPML String Translation:", "aktiv" if r["string_translation"] else "nicht aktiv")
+        for o in r["options"]:
+            print("%-50s %s Strings" % (o["option"], "?" if o["strings"] is None else o["strings"]))
+    elif a.cmd == "wpml-strings":
+        q = [("limit", a.limit), ("offset", a.offset)]
+        for k in ("q", "context", "lang", "status"):
+            if getattr(a, k):
+                q.append((k, getattr(a, k)))
+        r = c.request("GET", "bw-bridge/v1/wpml/strings", None, q)
+        if a.json_out:
+            out(r)
+        else:
+            for x in r["strings"]:
+                tr = ", ".join("%s%s" % (l, "" if t["status"] == 10 else "*") for l, t in x["translations"].items()) or "–"
+                print("#%-6d %-34s %-28s [%s]  %s" % (x["id"], x["context"][:34], x["name"][:28], tr, " ".join(x["value"].split())[:70]))
+            print("%d Strings%s  (* = nicht vollständig übersetzt)" % (r["count"], ", weitere vorhanden (--offset)" if r["has_more"] else ""))
+    elif a.cmd == "wpml-translate":
+        if a.file:
+            items = load_json(None, a.file)
+            items = items.get("translations", items) if isinstance(items, dict) else items
+        else:
+            if not (a.id and a.lang and a.value is not None):
+                sys.exit("wpml-translate: ID WERT --lang SPRACHE oder --file angeben.")
+            items = [{"id": a.id, "language": a.lang, "value": a.value, "complete": not a.incomplete}]
+        r = c.request("POST", "bw-bridge/v1/wpml/strings", {"translations": items, "dry_run": a.dry_run})
+        for x in r["results"]:
+            if x["status"] == "ok":
+                print("ok     #%s %s\n         Original: %s\n         alt:      %s\n         neu:      %s" % (x["id"], x["language"], " ".join(x["source"].split())[:100], " ".join((x["old"] or "–").split())[:100], " ".join(x["new"].split())[:100]))
+            else:
+                print("FEHLER #%s %s: %s" % (x["id"], x["language"], x.get("message")))
+        print("Probelauf, nichts gespeichert" if r["dry_run"] else "gespeichert")
+        if r["failed"]:
+            sys.exit(1)
     elif a.cmd == "render":
         q = [("limit", a.limit)] + ([("q", a.q)] if a.q else [])
         r = c.request("GET", "bw-bridge/v1/render/%d" % a.id, None, q)
