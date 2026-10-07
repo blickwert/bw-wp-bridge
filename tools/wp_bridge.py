@@ -23,18 +23,18 @@ Beispiele:
   wp_bridge.py tax-set event_category --json '{"object_types":["event"],"args":{"label":"Kategorien"}}'
 
 Texte, Suche, Meta, Stapel (ab Bridge 1.2):
-  wp_bridge.py search "Credits" --lang de              # Seiten, Produkte, Meta und Elementor-Texte durchsuchen
-  wp_bridge.py elementor-texts 1346 -q Workshops       # alle Texte einer Seite mit Widget-ID und Pfad
-  wp_bridge.py elementor-set 1346 8db1a15 settings.title "Workshops &amp; Vertiefungskurse" --dry-run
-  wp_bridge.py elementor-set 1346 --file aenderungen.json   # [{"widget_id","path","value","expect"?}, …]
+  wp_bridge.py search "Impressum" --lang de             # Seiten, Produkte, Meta und Elementor-Texte durchsuchen
+  wp_bridge.py elementor-texts 12 -q Kontakt          # alle Texte einer Seite mit Widget-ID und Pfad
+  wp_bridge.py elementor-set 12 8db1a15 settings.title "Neuer Titel" --dry-run
+  wp_bridge.py elementor-set 12 --file aenderungen.json   # [{"widget_id","path","value","expect"?}, …]
   wp_bridge.py elementor-put 42 seite.json --dry-run   # Textvergleich alt/neu, ohne zu speichern
-  wp_bridge.py elementor-backups 1346                  # automatische Sicherungen vor jedem Speichern
-  wp_bridge.py elementor-restore 1346 [--time 1700000000]
-  wp_bridge.py translations 130                        # WPML: { de: 1346, en: 130 }
-  wp_bridge.py translation-link 2124 --of 2121 [--lang de]   # WPML: 2124 als Übersetzung von 2121 verbinden
-  wp_bridge.py render 1346 -q Guthaben                 # sichtbarer Text im Frontend
-  wp_bridge.py meta-get 1260 --prefix _bw_
-  wp_bridge.py meta-set 1260 --set _bw_credit_valid_days=180 --dry-run
+  wp_bridge.py elementor-backups 12                  # automatische Sicherungen vor jedem Speichern
+  wp_bridge.py elementor-restore 12 [--time 1700000000]
+  wp_bridge.py translations 12                         # WPML: { de: 34, en: 12 }
+  wp_bridge.py translation-link 34 --of 12 [--lang de]  # WPML: 34 als Übersetzung von 12 verbinden
+  wp_bridge.py render 12 -q Kontakt                 # sichtbarer Text im Frontend
+  wp_bridge.py meta-get 56 --prefix _shop_
+  wp_bridge.py meta-set 56 --set _shop_hinweis=Text --dry-run
   wp_bridge.py batch operationen.json                  # {"operations":[{"method","path","query"?,"body"?}, …]}
 
 Theme-Dateien (nur wenn im Backend unter Einstellungen › BW WP Bridge freigeschaltet):

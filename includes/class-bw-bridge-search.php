@@ -183,7 +183,7 @@ final class BW_Bridge_Search {
 	}
 
 	/**
-	 * POST translations/{id} – Body: { "translation_of": 2121, "language": "de" (optional) }.
+	 * POST translations/{id} – Body: { "translation_of": 12, "language": "de" (optional) }.
 	 * Verbindet den Beitrag {id} als Übersetzung von "translation_of" (WPML). "language" setzt dabei zugleich die Sprache
 	 * von {id}; ohne Angabe bleibt seine bisherige Sprache. Verweigert (409), wenn in dieser Sprache schon eine andere
 	 * Übersetzung existiert oder {id} bereits in einer Gruppe mit weiteren Übersetzungen steckt.

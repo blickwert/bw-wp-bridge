@@ -13,7 +13,7 @@ dazu über dieses Plugin:
 | `GET/POST elementor/{id}/texts` | alle Texte einer Seite mit Widget-ID und Pfad lesen (`?q=` filtert) bzw. einzelne Texte gezielt setzen |
 | `GET elementor/{id}/backups`, `POST elementor/{id}/restore` | die letzten 10 automatischen Layout-Sicherungen auflisten bzw. eine zurückspielen |
 | `GET search?q=…` | Seiten, Beiträge, Produkte, Post-Meta und Elementor-Texte durchsuchen (`types`, `lang`, `meta`, `limit`) |
-| `GET/POST translations/{id}` | WPML: Übersetzungen eines Beitrags lesen (`{ de: 1346, en: 130 }`) bzw. den Beitrag mit `{ "translation_of": 2121 }` (und optional `"language": "de"`) als Übersetzung eines anderen verbinden; verweigert (409), wenn in dieser Sprache schon eine andere Übersetzung existiert |
+| `GET/POST translations/{id}` | WPML: Übersetzungen eines Beitrags lesen (`{ de: 34, en: 12 }`) bzw. den Beitrag mit `{ "translation_of": 12 }` (und optional `"language": "de"`) als Übersetzung eines anderen verbinden; verweigert (409), wenn in dieser Sprache schon eine andere Übersetzung existiert. Nur mit aktivem WPML (`status` zeigt es im Feld `wpml`); ohne WPML melden die Routen das und tun nichts |
 | `GET render/{id}` | sichtbarer Text der Seite im Frontend (`?q=` filtert Zeilen) |
 | `GET/POST meta/{id}` | Post-Meta lesen/setzen/löschen, auch für Felder, die ein Plugin nicht in der REST-API freigibt (`"dry_run"` möglich) |
 | `POST batch` | bis zu 50 REST-Aufrufe (auch `wp/v2/…`, `wc/v3/…`) in einer Anfrage; jede Operation läuft mit den Rechteprüfungen ihrer Route |
@@ -67,21 +67,21 @@ Damit sich Inhalte schnell und ohne Handarbeit im Elementor-JSON ändern lassen:
   nennt je Treffer die Fundstelle (bei Elementor Widget-ID und Pfad). Elementor speichert Text JSON-escaped (`ü` als `\u00fc`);
   das wird berücksichtigt. Mit `--lang de` nur Beiträge dieser WPML-Sprache; `translations` liefert die Zuordnung der Sprachversionen.
 - **Elementor-Pro-Formulare:** Beschriftungen, Auswahloptionen, Erfolgs-/Fehlermeldungen sowie Empfänger, Absender, Betreff und Text der Mails
-  (`email_to`, `email_content_2` …) erscheinen in `elementor-texts` und lassen sich mit `elementor-set` ändern – z. B. den Empfänger beim Livegang.
+  (`email_to`, `email_content_2` …) erscheinen in `elementor-texts` und lassen sich mit `elementor-set` ändern – z. B. den Empfänger beim Umzug von der Dev- auf die Live-Seite.
 - **Prüfen im Frontend:** `render` holt die Seite von der eigenen URL und gibt den sichtbaren Text zeilenweise aus.
 - **Stapel:** `batch` führt mehrere Aufrufe in einer Anfrage aus (stoppt standardmäßig beim ersten Fehler).
 - **Zeitlimit:** `--timeout 300` (vor dem Befehl) oder `WP_TIMEOUT` für langsame Aufrufe.
 
 ```bash
-wp_bridge.py search "Credits" --lang de
-wp_bridge.py elementor-texts 1346 -q Workshops
-wp_bridge.py elementor-set 1346 8db1a15 settings.title "Workshops &amp; Vertiefungskurse" --dry-run
-wp_bridge.py elementor-set 1346 --file aenderungen.json      # [{"widget_id","path","value","expect"?}, …]
-wp_bridge.py elementor-backups 1346 && wp_bridge.py elementor-restore 1346
-wp_bridge.py translation-link 2124 --of 2121        # DE-Produkt als Übersetzung des EN-Produkts verbinden (WPML)
-wp_bridge.py meta-get 1260 --prefix _bw_
-wp_bridge.py meta-set 1260 --set _bw_credit_valid_days=180
-wp_bridge.py batch operationen.json    # {"operations":[{"method":"POST","path":"wc/v3/products/158","body":{…}}, …]}
+wp_bridge.py search "Impressum" --lang de
+wp_bridge.py elementor-texts 12 -q Kontakt
+wp_bridge.py elementor-set 12 8db1a15 settings.title "Neuer Titel" --dry-run
+wp_bridge.py elementor-set 12 --file aenderungen.json      # [{"widget_id","path","value","expect"?}, …]
+wp_bridge.py elementor-backups 12 && wp_bridge.py elementor-restore 12
+wp_bridge.py translation-link 34 --of 12             # Beitrag 34 als Übersetzung von Beitrag 12 verbinden (WPML)
+wp_bridge.py meta-get 56 --prefix _shop_
+wp_bridge.py meta-set 56 --set _shop_hinweis=Text
+wp_bridge.py batch operationen.json    # {"operations":[{"method":"POST","path":"wp/v2/pages/12","body":{…}}, …]}
 ```
 
 ## Theme-Dateien lesen und schreiben (optional)

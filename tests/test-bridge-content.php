@@ -121,16 +121,16 @@ $res = BW_Bridge_Elementor_Texts::get_texts( $g );
 check( 'get_texts: Filter q', $res['count'] === 1 && $res['texts'][0]['widget_id'] === 'e1' );
 
 /* ---------- Meta ---------- */
-post( 7, 'product', 'Single Class' ); $GLOBALS['meta'][7] = [ '_bw_feature_3_desc' => [ 'Lorem Ipsum' ], '_bw_credit_valid_days' => [ '0' ], '_elementor_data' => [ '[]' ], 'plain' => [ 'a', 'b' ] ];
+post( 7, 'product', 'Produkt A' ); $GLOBALS['meta'][7] = [ '_shop_hinweis' => [ 'Platzhaltertext' ], '_shop_tage' => [ '0' ], '_elementor_data' => [ '[]' ], 'plain' => [ 'a', 'b' ] ];
 $res = BW_Bridge_Meta::get_meta( new WP_REST_Request( 'GET', '', [ 'id' => 7 ] ) );
-check( 'meta-get: ohne _elementor_data, Mehrfachwerte als Liste', ! isset( $res['meta']->_elementor_data ) && $res['meta']->plain === [ 'a', 'b' ] && $res['meta']->_bw_credit_valid_days === '0' );
-$q = new WP_REST_Request( 'GET', '', [ 'id' => 7 ] ); $q->q = [ 'prefix' => '_bw_' ];
-check( 'meta-get: prefix', array_keys( (array) BW_Bridge_Meta::get_meta( $q )['meta'] ) === [ '_bw_credit_valid_days', '_bw_feature_3_desc' ] );
-$m = new WP_REST_Request( 'POST', '', [ 'id' => 7 ] ); $m->json = [ 'set' => [ '_bw_feature_3_desc' => '' , '_bw_credit_valid_days' => '180' ], 'dry_run' => true ];
+check( 'meta-get: ohne _elementor_data, Mehrfachwerte als Liste', ! isset( $res['meta']->_elementor_data ) && $res['meta']->plain === [ 'a', 'b' ] && $res['meta']->_shop_tage === '0' );
+$q = new WP_REST_Request( 'GET', '', [ 'id' => 7 ] ); $q->q = [ 'prefix' => '_shop_' ];
+check( 'meta-get: prefix', array_keys( (array) BW_Bridge_Meta::get_meta( $q )['meta'] ) === [ '_shop_hinweis', '_shop_tage' ] );
+$m = new WP_REST_Request( 'POST', '', [ 'id' => 7 ] ); $m->json = [ 'set' => [ '_shop_hinweis' => '' , '_shop_tage' => '180' ], 'dry_run' => true ];
 $res = BW_Bridge_Meta::set_meta( $m );
-check( 'meta-set Probelauf: nichts geändert, alt/neu gemeldet', $res['changes']->_bw_credit_valid_days === [ 'old' => '0', 'new' => '180' ] && $GLOBALS['meta'][7]['_bw_credit_valid_days'] === [ '0' ] );
-$m->json = [ 'set' => [ '_bw_credit_valid_days' => '180' ], 'delete' => [ 'plain' ] ]; $res = BW_Bridge_Meta::set_meta( $m );
-check( 'meta-set: geschrieben und gelöscht', $GLOBALS['meta'][7]['_bw_credit_valid_days'] === [ '180' ] && ! isset( $GLOBALS['meta'][7]['plain'] ) );
+check( 'meta-set Probelauf: nichts geändert, alt/neu gemeldet', $res['changes']->_shop_tage === [ 'old' => '0', 'new' => '180' ] && $GLOBALS['meta'][7]['_shop_tage'] === [ '0' ] );
+$m->json = [ 'set' => [ '_shop_tage' => '180' ], 'delete' => [ 'plain' ] ]; $res = BW_Bridge_Meta::set_meta( $m );
+check( 'meta-set: geschrieben und gelöscht', $GLOBALS['meta'][7]['_shop_tage'] === [ '180' ] && ! isset( $GLOBALS['meta'][7]['plain'] ) );
 $m->json = [ 'set' => [ '_elementor_data' => 'x' ] ];
 check( 'meta-set: _elementor_data gesperrt', is_wp_error( BW_Bridge_Meta::set_meta( $m ) ) && $GLOBALS['meta'][7]['_elementor_data'] === [ '[]' ] );
 $m->json = [ 'delete' => [ BW_Bridge_Elementor::BACKUP_META ] ];
@@ -138,12 +138,12 @@ check( 'meta-set: Sicherungs-Feld gesperrt', is_wp_error( BW_Bridge_Meta::set_me
 
 /* ---------- Stapel ---------- */
 $b = new WP_REST_Request( 'POST' ); $b->json = [ 'operations' => [
-	[ 'method' => 'POST', 'path' => 'wc/v3/products/158?lang=en', 'body' => [ 'name' => 'X' ] ],
+	[ 'method' => 'POST', 'path' => 'wp/v2/pages/158?lang=en', 'body' => [ 'name' => 'X' ] ],
 	[ 'method' => 'GET', 'path' => '/wp/v2/pages', 'query' => [ 'per_page' => 5 ] ],
 ] ];
 $res = BW_Bridge_Batch::run( $b );
 check( 'batch: führt alle aus', count( $res['results'] ) === 2 && $res['results'][0]['status'] === 200 && ! $res['stopped'] );
-check( 'batch: Route, Query und Body werden übergeben', $GLOBALS['do_request_log'][0][1] === '/wc/v3/products/158' && $GLOBALS['do_request_log'][0][2] === [ 'lang' => 'en' ] && $GLOBALS['do_request_log'][0][3] === [ 'name' => 'X' ] && $GLOBALS['do_request_log'][1][2] === [ 'per_page' => 5 ] );
+check( 'batch: Route, Query und Body werden übergeben', $GLOBALS['do_request_log'][0][1] === '/wp/v2/pages/158' && $GLOBALS['do_request_log'][0][2] === [ 'lang' => 'en' ] && $GLOBALS['do_request_log'][0][3] === [ 'name' => 'X' ] && $GLOBALS['do_request_log'][1][2] === [ 'per_page' => 5 ] );
 $b->json = [ 'operations' => [ [ 'method' => 'POST', 'path' => 'a/b', 'body' => [ 'mode' => 'fail' ] ], [ 'method' => 'GET', 'path' => 'c' ] ] ];
 $res = BW_Bridge_Batch::run( $b );
 check( 'batch: stoppt standardmäßig beim ersten Fehler', count( $res['results'] ) === 1 && $res['stopped'] === true );
@@ -155,20 +155,20 @@ $b->json = [ 'operations' => [] ]; check( 'batch: leere Liste => Fehler', is_wp_
 $b->json = [ 'operations' => array_fill( 0, 51, [ 'path' => 'x' ] ) ]; check( 'batch: mehr als 50 => Fehler', is_wp_error( BW_Bridge_Batch::run( $b ) ) );
 
 /* ---------- Suche + WPML ---------- */
-post( 130, 'page', 'Your Journey' ); post( 1346, 'page', 'Deine Yogareise' ); post( 9, 'page', 'Kontakt', 'nichts' );
-$GLOBALS['meta'][130] = [ '_elementor_data' => [ layout_json( 'Credits explained' ) ] ];
-$GLOBALS['meta'][1346] = [ '_elementor_data' => [ layout_json( 'So funktioniert das Creditsystem' ) ], '_bw_note' => [ 'Credit Hinweis' ] ];
+post( 130, 'page', 'Seite Englisch' ); post( 1346, 'page', 'Seite Deutsch' ); post( 9, 'page', 'Kontakt', 'nichts' );
+$GLOBALS['meta'][130] = [ '_elementor_data' => [ layout_json( 'Anleitung erklärt' ) ] ];
+$GLOBALS['meta'][1346] = [ '_elementor_data' => [ layout_json( 'So funktioniert die Anleitung' ) ], '_shop_notiz' => [ 'Anleitung Hinweis' ] ];
 $GLOBALS['wpdb']->ids = [ 1346, 130, 9 ];
 $GLOBALS['filters']['wpml_element_language_details'] = static function ( $v, $a ) { return (object) [ 'language_code' => in_array( $a['element_id'], [ 1346 ], true ) ? 'de' : 'en' ]; };
-$s = new WP_REST_Request( 'GET' ); $s->q = [ 'q' => 'Credit' ];
+$s = new WP_REST_Request( 'GET' ); $s->q = [ 'q' => 'Anleitung' ];
 $res = BW_Bridge_Search::search( $s );
 check( 'search: Treffer in Elementor-Text und Meta, Beitrag ohne Treffer fehlt', $res['count'] === 2 && $res['results'][0]['id'] === 1346 );
 $wheres = array_column( $res['results'][0]['hits'], 'where' );
 check( 'search: Fundstellen elementor + meta mit Widget-ID/Key', in_array( 'elementor', $wheres, true ) && in_array( 'meta', $wheres, true ) && $res['results'][0]['hits'][0]['widget_id'] === 'h1' );
 check( 'search: Sprache wird mitgeliefert', $res['results'][0]['lang'] === 'de' && $res['results'][1]['lang'] === 'en' );
-$s->q = [ 'q' => 'Credit', 'lang' => 'de' ]; $res = BW_Bridge_Search::search( $s );
+$s->q = [ 'q' => 'Anleitung', 'lang' => 'de' ]; $res = BW_Bridge_Search::search( $s );
 check( 'search: lang-Filter', $res['count'] === 1 && $res['results'][0]['id'] === 1346 );
-$s->q = [ 'q' => 'Credit', 'types' => 'page,product', 'meta' => '0' ]; $res = BW_Bridge_Search::search( $s );
+$s->q = [ 'q' => 'Anleitung', 'types' => 'page,product', 'meta' => '0' ]; $res = BW_Bridge_Search::search( $s );
 check( 'search: SQL-Platzhalter passen (types, meta=0)', strpos( $GLOBALS['wpdb']->last_sql, 'p.post_type IN (%s,%s)' ) !== false && strpos( $GLOBALS['wpdb']->last_sql, 'm.meta_value' ) === false );
 $s->q = [ 'q' => 'Gültig' ]; BW_Bridge_Search::search( $s );
 check( 'search: Umlaute werden zusätzlich JSON-escaped gesucht (Elementor)', in_array( '%G\\\\u00fcltig%', $GLOBALS['wpdb']->last_args, true ) );
@@ -187,7 +187,7 @@ check( 'translations: ohne WPML wpml=false', $res['wpml'] === false );
 /* ---------- WPML: Übersetzungen verknüpfen ---------- */
 // einfaches WPML-Modell: element_id => [ trid, lang ]
 $GLOBALS['wpml'] = [ 130 => [ 'trid' => 55, 'lang' => 'en' ], 1346 => [ 'trid' => 55, 'lang' => 'de' ], 2121 => [ 'trid' => 70, 'lang' => 'en' ], 2124 => [ 'trid' => 71, 'lang' => 'de' ], 2125 => [ 'trid' => 72, 'lang' => 'de' ], 2126 => [ 'trid' => 73, 'lang' => 'en' ] ];
-post( 2121, 'product', 'Private Session' ); post( 2124, 'product', 'Private Yogastunde' ); post( 2125, 'product', 'Weitere' ); post( 2126, 'product', 'Another' ); post( 2130, 'page', 'Seite' );
+post( 2121, 'product', 'Produkt EN' ); post( 2124, 'product', 'Produkt DE' ); post( 2125, 'product', 'Produkt DE 2' ); post( 2126, 'product', 'Produkt EN 2' ); post( 2130, 'page', 'Seite' );
 $GLOBALS['filters']['wpml_element_type'] = static fn( $t ) => "post_$t";
 $GLOBALS['filters']['wpml_element_language_details'] = static function ( $v, $a ) { $x = $GLOBALS['wpml'][ $a['element_id'] ] ?? null; return $x ? (object) [ 'language_code' => $x['lang'] ] : null; };
 $GLOBALS['filters']['wpml_element_trid'] = static function ( $v, $id, $type ) { return $GLOBALS['wpml'][ $id ]['trid'] ?? null; };

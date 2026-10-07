@@ -1,7 +1,7 @@
 <?php
 /**
  * Post-Meta eines Beitrags (Seite, Produkt, Kurs …) lesen und schreiben – unabhängig davon, ob der Typ
- * die Felder in seiner REST-Schnittstelle freigibt (z. B. Plugin-Felder wie _bw_feature_1_title).
+ * die Felder in seiner REST-Schnittstelle freigibt (z. B. Felder von Plugins).
  */
 
 defined( 'ABSPATH' ) || exit;
