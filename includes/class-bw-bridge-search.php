@@ -19,9 +19,8 @@ final class BW_Bridge_Search {
 			'permission_callback' => $admin,
 		] );
 		register_rest_route( BW_WP_Bridge::NS, '/translations/(?P<id>\d+)', [
-			'methods'             => 'GET',
-			'callback'            => [ __CLASS__, 'translations' ],
-			'permission_callback' => $admin,
+			[ 'methods' => 'GET', 'callback' => [ __CLASS__, 'translations' ], 'permission_callback' => $admin ],
+			[ 'methods' => 'POST', 'callback' => [ __CLASS__, 'link_translation' ], 'permission_callback' => $admin ],
 		] );
 		register_rest_route( BW_WP_Bridge::NS, '/render/(?P<id>\d+)', [
 			'methods'             => 'GET',
@@ -181,6 +180,55 @@ final class BW_Bridge_Search {
 			}
 		}
 		return rest_ensure_response( [ 'id' => $id, 'wpml' => true, 'language' => self::language_of( $id, $post->post_type ), 'translations' => (object) $map ] );
+	}
+
+	/**
+	 * POST translations/{id} – Body: { "translation_of": 12, "language": "de" (optional) }.
+	 * Verbindet den Beitrag {id} als Übersetzung von "translation_of" (WPML). "language" setzt dabei zugleich die Sprache
+	 * von {id}; ohne Angabe bleibt seine bisherige Sprache. Verweigert (409), wenn in dieser Sprache schon eine andere
+	 * Übersetzung existiert oder {id} bereits in einer Gruppe mit weiteren Übersetzungen steckt.
+	 */
+	public static function link_translation( WP_REST_Request $r ) {
+		$id   = (int) $r['id'];
+		$body = (array) $r->get_json_params();
+		$src  = (int) ( $body['translation_of'] ?? 0 );
+		$post = get_post( $id );
+		$from = $src ? get_post( $src ) : null;
+		if ( ! $post || ! $from ) {
+			return new WP_Error( 'bw_bridge_not_found', 'Beitrag oder "translation_of" nicht gefunden.', [ 'status' => 404 ] );
+		}
+		if ( ! self::wpml() ) {
+			return new WP_Error( 'bw_bridge_no_wpml', 'WPML ist nicht aktiv.', [ 'status' => 409 ] );
+		}
+		if ( $id === $src || $post->post_type !== $from->post_type ) {
+			return new WP_Error( 'bw_bridge_invalid', 'Beide Beiträge müssen verschieden sein und denselben Typ haben.', [ 'status' => 400 ] );
+		}
+		$type     = apply_filters( 'wpml_element_type', $post->post_type );
+		$src_lang = self::language_of( $src, $from->post_type );
+		$lang     = ! empty( $body['language'] ) ? sanitize_key( $body['language'] ) : self::language_of( $id, $post->post_type );
+		$trid     = apply_filters( 'wpml_element_trid', null, $src, $type );
+		if ( ! $src_lang || ! $lang || ! $trid ) {
+			return new WP_Error( 'bw_bridge_invalid', 'Sprache oder Übersetzungsgruppe konnte nicht bestimmt werden.', [ 'status' => 400 ] );
+		}
+		if ( $lang === $src_lang ) {
+			return new WP_Error( 'bw_bridge_invalid', 'Quelle und Ziel haben dieselbe Sprache (' . $lang . '); "language" angeben.', [ 'status' => 400 ] );
+		}
+		$existing = (array) apply_filters( 'wpml_get_element_translations', null, $trid, $type );
+		if ( isset( $existing[ $lang ]->element_id ) && (int) $existing[ $lang ]->element_id !== $id ) {
+			return new WP_Error( 'bw_bridge_conflict', 'In der Sprache ' . $lang . ' gibt es schon die Übersetzung #' . (int) $existing[ $lang ]->element_id . '.', [ 'status' => 409 ] );
+		}
+		$own_trid = apply_filters( 'wpml_element_trid', null, $id, $type );
+		if ( $own_trid && (int) $own_trid !== (int) $trid && count( (array) apply_filters( 'wpml_get_element_translations', null, $own_trid, $type ) ) > 1 ) {
+			return new WP_Error( 'bw_bridge_conflict', 'Der Beitrag gehört schon zu einer anderen Übersetzungsgruppe mit weiteren Übersetzungen.', [ 'status' => 409 ] );
+		}
+		do_action( 'wpml_set_element_language_details', [
+			'element_id'           => $id,
+			'element_type'         => $type,
+			'trid'                 => $trid,
+			'language_code'        => $lang,
+			'source_language_code' => $src_lang,
+		] );
+		return self::translations( $r );
 	}
 
 	/* ---------------------------------------------------------------- Render */

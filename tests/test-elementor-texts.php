@@ -17,7 +17,7 @@ function layout() {
 		[ 'id' => 'h1', 'elType' => 'widget', 'widgetType' => 'e-heading', 'settings' => [
 			'classes' => [ '$$type' => 'classes', 'value' => [ 'g-1' ] ],
 			'tag'     => [ '$$type' => 'string', 'value' => 'h3' ],
-			'title'   => [ '$$type' => 'escaped-html', 'value' => 'Private Classes &amp; More' ],
+			'title'   => [ '$$type' => 'escaped-html', 'value' => 'Überschrift &amp; Mehr' ],
 			'link'    => [ '$$type' => 'link', 'value' => [ 'isTargetBlank' => null ] ],
 		], 'styles' => [ 'e-h1' => [ 'variants' => [ [ 'props' => [ 'text-align' => [ '$$type' => 'string', 'value' => 'center' ] ] ] ] ] ] ],
 		[ 'id' => 'p1', 'elType' => 'widget', 'widgetType' => 'e-paragraph', 'settings' => [
@@ -27,11 +27,11 @@ function layout() {
 			'editor' => '<p>Alt</p>', 'typography_font_family' => 'Poppins', 'typography_font_size' => [ 'unit' => 'px', 'size' => 20 ],
 		] ],
 		[ 'id' => 'a1', 'elType' => 'widget', 'widgetType' => 'nested-accordion', 'settings' => [
-			'items' => [ [ '_id' => 'x1', 'item_title' => 'Frage eins' ], [ '_id' => 'x2', 'item_title' => 'So funktioniert das Creditsystem' ] ],
+			'items' => [ [ '_id' => 'x1', 'item_title' => 'Frage eins' ], [ '_id' => 'x2', 'item_title' => 'So funktioniert die Anleitung' ] ],
 			'accordion_border_normal_border' => 'none', '__globals__' => [ 'title' => 'globals/typography?id=primary' ],
 		] ],
 		[ 'id' => 'l1', 'elType' => 'widget', 'widgetType' => 'loop-grid', 'settings' => [ 'text' => 'Load More', 'template_id' => '1623' ] ],
-		[ 'id' => 's1', 'elType' => 'widget', 'widgetType' => 'shortcode', 'settings' => [ 'shortcode' => '[bw_credits_course_list]' ] ],
+		[ 'id' => 's1', 'elType' => 'widget', 'widgetType' => 'shortcode', 'settings' => [ 'shortcode' => '[mein_shortcode]' ] ],
 		[ 'id' => 'i1', 'elType' => 'widget', 'widgetType' => 'icon', 'settings' => [ 'selected_icon' => [ 'value' => 'far fa-calendar-alt', 'library' => 'fa-regular' ] ] ],
 	] ] ];
 }
@@ -40,14 +40,27 @@ function layout() {
 $t   = BW_Bridge_Elementor_Texts::extract( layout() );
 $map = [];
 foreach ( $t as $x ) { $map[ $x['widget_id'] . '|' . $x['path'] ] = $x['value']; }
-check( 'extract: atomare Überschrift', ( $map['h1|settings.title'] ?? '' ) === 'Private Classes &amp; More' );
+check( 'extract: atomare Überschrift', ( $map['h1|settings.title'] ?? '' ) === 'Überschrift &amp; Mehr' );
 check( 'extract: atomarer Absatz mit Link', isset( $map['p1|settings.paragraph'] ) );
 check( 'extract: klassischer Editor', ( $map['t1|settings.editor'] ?? '' ) === '<p>Alt</p>' );
-check( 'extract: Wiederholer mit Index im Pfad', ( $map['a1|settings.items[1].item_title'] ?? '' ) === 'So funktioniert das Creditsystem' );
+check( 'extract: Wiederholer mit Index im Pfad', ( $map['a1|settings.items[1].item_title'] ?? '' ) === 'So funktioniert die Anleitung' );
 check( 'extract: Button-/Loop-Text', ( $map['l1|settings.text'] ?? '' ) === 'Load More' );
 check( 'extract: Shortcode', isset( $map['s1|settings.shortcode'] ) );
 check( 'extract: ignoriert tag, classes, link, styles, __globals__, Typografie, Icons', count( $map ) === 7 );
 check( 'extract: Widget-Typ wird mitgeliefert', $t[0]['widget_type'] === 'e-heading' );
+
+/* --- Elementor-Pro-Formular --- */
+$form = [ [ 'id' => 'f1', 'elType' => 'widget', 'widgetType' => 'form', 'settings' => [
+	'form_name' => 'Anfrage', 'input_size' => 'sm',
+	'form_fields' => [ [ 'custom_id' => 'name', 'field_type' => 'text', 'field_label' => 'Name', '_id' => 'a1b2c3d' ], [ 'custom_id' => 'x', 'field_type' => 'select', 'field_label' => 'Format', 'field_options' => "Online|online\nVor Ort|onsite", '_id' => 'e4f5a6b' ] ],
+	'email_to' => 'admin@example.com', 'email_content_2' => 'Hallo [field id="name"]', 'success_message' => 'Danke!', 'button_text' => 'Senden',
+] ] ];
+$fm = []; foreach ( BW_Bridge_Elementor_Texts::extract( $form ) as $x ) { $fm[ $x['path'] ] = $x['value']; }
+check( 'Formular: Feldbeschriftungen und Auswahloptionen', ( $fm['settings.form_fields[0].field_label'] ?? '' ) === 'Name' && isset( $fm['settings.form_fields[1].field_options'] ) );
+check( 'Formular: Empfänger, Bestätigungsmail, Erfolgsmeldung, Button', ( $fm['settings.email_to'] ?? '' ) === 'admin@example.com' && isset( $fm['settings.email_content_2'], $fm['settings.success_message'], $fm['settings.button_text'] ) );
+check( 'Formular: technische Felder (form_name, Typen, IDs) bleiben außen vor', ! isset( $fm['settings.form_name'] ) && ! isset( $fm['settings.input_size'] ) && count( $fm ) === 7 );
+BW_Bridge_Elementor_Texts::apply( $form, [ [ 'widget_id' => 'f1', 'path' => 'settings.email_to', 'value' => 'info@example.com', 'expect' => 'admin@example.com' ] ] );
+check( 'Formular: Empfänger per apply ändern', $form[0]['settings']['email_to'] === 'info@example.com' );
 
 /* --- parse_path --- */
 check( 'parse_path einfach', BW_Bridge_Elementor_Texts::parse_path( 'settings.title' ) === [ 'settings', 'title' ] );
@@ -57,16 +70,16 @@ check( 'parse_path ungültig', BW_Bridge_Elementor_Texts::parse_path( '' ) === n
 /* --- apply --- */
 $el  = layout();
 $res = BW_Bridge_Elementor_Texts::apply( $el, [
-	[ 'widget_id' => 'h1', 'path' => 'settings.title', 'value' => 'Private Sessions' ],
+	[ 'widget_id' => 'h1', 'path' => 'settings.title', 'value' => 'Neuer Titel' ],
 	[ 'widget_id' => 't1', 'path' => 'settings.editor', 'value' => '<p>Neu</p>', 'expect' => '<p>Alt</p>' ],
-	[ 'widget_id' => 'a1', 'path' => 'settings.items[1].item_title', 'value' => 'Wie funktioniert das Yoga-Guthaben?' ],
+	[ 'widget_id' => 'a1', 'path' => 'settings.items[1].item_title', 'value' => 'Wie funktioniert die Anleitung?' ],
 ] );
 check( 'apply: alle ok', count( array_filter( $res, fn( $r ) => $r['status'] === 'ok' ) ) === 3 );
-check( 'apply: atomarer Wert gesetzt, $$type bleibt', $el[0]['elements'][0]['settings']['title'] === [ '$$type' => 'escaped-html', 'value' => 'Private Sessions' ] );
+check( 'apply: atomarer Wert gesetzt, $$type bleibt', $el[0]['elements'][0]['settings']['title'] === [ '$$type' => 'escaped-html', 'value' => 'Neuer Titel' ] );
 check( 'apply: klassischer Wert gesetzt', $el[0]['elements'][2]['settings']['editor'] === '<p>Neu</p>' );
-check( 'apply: Wiederholer gesetzt, _id bleibt', $el[0]['elements'][3]['settings']['items'][1] === [ '_id' => 'x2', 'item_title' => 'Wie funktioniert das Yoga-Guthaben?' ] );
+check( 'apply: Wiederholer gesetzt, _id bleibt', $el[0]['elements'][3]['settings']['items'][1] === [ '_id' => 'x2', 'item_title' => 'Wie funktioniert die Anleitung?' ] );
 check( 'apply: Stile/Klassen unverändert', $el[0]['elements'][0]['styles'] === layout()[0]['elements'][0]['styles'] && $el[0]['elements'][0]['settings']['tag']['value'] === 'h3' );
-check( 'apply: Ergebnis enthält alt und neu', $res[0]['old'] === 'Private Classes &amp; More' && $res[0]['new'] === 'Private Sessions' );
+check( 'apply: Ergebnis enthält alt und neu', $res[0]['old'] === 'Überschrift &amp; Mehr' && $res[0]['new'] === 'Neuer Titel' );
 
 $el  = layout();
 $res = BW_Bridge_Elementor_Texts::apply( $el, [ [ 'widget_id' => 't1', 'path' => 'settings.editor', 'value' => 'x', 'expect' => 'etwas anderes' ] ] );
