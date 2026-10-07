@@ -20,6 +20,10 @@ final class BW_Bridge_Elementor_Texts {
 		'before_text', 'after_text', 'rotating_text', 'highlighted_text', 'button_text', 'alert_title', 'alert_description',
 		'html', 'shortcode', 'message', 'testimonial_content', 'testimonial_name', 'testimonial_job',
 		'load_more_no_posts_custom_message', 'nothing_found_message_text',
+		// Elementor-Pro-Formular: Beschriftungen, Meldungen, Mails (inkl. Empfänger/Absender, die beim Livegang angepasst werden)
+		'field_label', 'field_options', 'acceptance_text', 'success_message', 'error_message', 'required_field_message',
+		'email_to', 'email_to_2', 'email_from', 'email_from_2', 'email_from_name', 'email_from_name_2',
+		'email_subject', 'email_subject_2', 'email_content', 'email_content_2',
 	];
 
 	/** Einstellungen, in die nicht hineingesehen wird (Stile, CSS-Klassen, globale Verweise). */

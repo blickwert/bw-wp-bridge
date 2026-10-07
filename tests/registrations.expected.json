@@ -255,6 +255,13 @@
             "translations",
             "can_manage",
             []
+        ],
+        [
+            "bw-bridge/v1/translations/(?P<id>\\d+)",
+            "POST",
+            "link_translation",
+            "can_manage",
+            []
         ]
     ],
     "settings": [

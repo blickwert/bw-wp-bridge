@@ -33,6 +33,7 @@ function delete_post_meta( $id, $key, $v = '' ) {
 function did_action( $a ) { return 1; }
 function time_now() { return $GLOBALS['now']; }
 function apply_filters( $tag, $v = null, ...$args ) { return isset( $GLOBALS['filters'][ $tag ] ) ? call_user_func( $GLOBALS['filters'][ $tag ], $v, ...$args ) : $v; }
+function do_action( $tag, ...$args ) { if ( isset( $GLOBALS['actions'][ $tag ] ) ) { call_user_func( $GLOBALS['actions'][ $tag ], ...$args ); } }
 function has_filter( $tag ) { return isset( $GLOBALS['filters'][ $tag ] ); }
 function gmdate_stub() {}
 class WP_Error { public $code, $msg, $data; function __construct( $c, $m = '', $d = [] ) { $this->code = $c; $this->msg = $m; $this->data = $d; } function get_error_code() { return $this->code; } }
@@ -181,6 +182,46 @@ check( 'translations: WPML-Zuordnung', $res['wpml'] && (array) $res['translation
 $GLOBALS['filters'] = [];
 $res = BW_Bridge_Search::translations( new WP_REST_Request( 'GET', '', [ 'id' => 130 ] ) );
 check( 'translations: ohne WPML wpml=false', $res['wpml'] === false );
+
+
+/* ---------- WPML: Übersetzungen verknüpfen ---------- */
+// einfaches WPML-Modell: element_id => [ trid, lang ]
+$GLOBALS['wpml'] = [ 130 => [ 'trid' => 55, 'lang' => 'en' ], 1346 => [ 'trid' => 55, 'lang' => 'de' ], 2121 => [ 'trid' => 70, 'lang' => 'en' ], 2124 => [ 'trid' => 71, 'lang' => 'de' ], 2125 => [ 'trid' => 72, 'lang' => 'de' ], 2126 => [ 'trid' => 73, 'lang' => 'en' ] ];
+post( 2121, 'product', 'Private Session' ); post( 2124, 'product', 'Private Yogastunde' ); post( 2125, 'product', 'Weitere' ); post( 2126, 'product', 'Another' ); post( 2130, 'page', 'Seite' );
+$GLOBALS['filters']['wpml_element_type'] = static fn( $t ) => "post_$t";
+$GLOBALS['filters']['wpml_element_language_details'] = static function ( $v, $a ) { $x = $GLOBALS['wpml'][ $a['element_id'] ] ?? null; return $x ? (object) [ 'language_code' => $x['lang'] ] : null; };
+$GLOBALS['filters']['wpml_element_trid'] = static function ( $v, $id, $type ) { return $GLOBALS['wpml'][ $id ]['trid'] ?? null; };
+$GLOBALS['filters']['wpml_get_element_translations'] = static function ( $v, $trid, $type ) { $o = []; foreach ( $GLOBALS['wpml'] as $id => $x ) { if ( $x['trid'] === $trid ) { $o[ $x['lang'] ] = (object) [ 'element_id' => $id ]; } } return $o; };
+$GLOBALS['actions']['wpml_set_element_language_details'] = static function ( $a ) { $GLOBALS['wpml'][ $a['element_id'] ] = [ 'trid' => $a['trid'], 'lang' => $a['language_code'], 'src' => $a['source_language_code'], 'type' => $a['element_type'] ]; };
+function link_req( $id, $json ) { $q = new WP_REST_Request( 'POST', '', [ 'id' => $id ] ); $q->json = $json; return $q; }
+
+$res = BW_Bridge_Search::link_translation( link_req( 2124, [ 'translation_of' => 2121 ] ) );
+check( 'link: DE-Produkt wird Übersetzung des EN-Produkts', ! is_wp_error( $res ) && (array) $res['translations'] === [ 'en' => 2121, 'de' => 2124 ] );
+check( 'link: WPML bekommt Gruppe, Sprache, Quellsprache und Elementtyp', $GLOBALS['wpml'][2124] === [ 'trid' => 70, 'lang' => 'de', 'src' => 'en', 'type' => 'post_product' ] );
+$res = BW_Bridge_Search::link_translation( link_req( 2124, [ 'translation_of' => 2121 ] ) );
+check( 'link: wiederholen ist unschädlich (idempotent)', ! is_wp_error( $res ) && (array) $res['translations'] === [ 'en' => 2121, 'de' => 2124 ] );
+$res = BW_Bridge_Search::link_translation( link_req( 2125, [ 'translation_of' => 2121 ] ) );
+check( 'link: Sprache schon durch andere Übersetzung belegt => 409', is_wp_error( $res ) && $res->data['status'] === 409 && $GLOBALS['wpml'][2125]['trid'] === 72 );
+$res = BW_Bridge_Search::link_translation( link_req( 2126, [ 'translation_of' => 2121 ] ) );
+check( 'link: gleiche Sprache ohne "language" => 400', is_wp_error( $res ) && $res->data['status'] === 400 );
+post( 2131, 'product', 'Gruppe A en' ); post( 2132, 'product', 'Gruppe A de' ); post( 2133, 'product', 'Gruppe A fr' );
+$GLOBALS['wpml'][2131] = [ 'trid' => 80, 'lang' => 'en' ]; $GLOBALS['wpml'][2132] = [ 'trid' => 80, 'lang' => 'de' ]; $GLOBALS['wpml'][2133] = [ 'trid' => 80, 'lang' => 'fr' ];
+$res = BW_Bridge_Search::link_translation( link_req( 2132, [ 'translation_of' => 2126 ] ) );
+check( 'link: Beitrag in anderer Gruppe mit weiteren Übersetzungen => 409', is_wp_error( $res ) && $res->data['status'] === 409 && $GLOBALS['wpml'][2132]['trid'] === 80 );
+$res = BW_Bridge_Search::link_translation( link_req( 2130, [ 'translation_of' => 2121 ] ) );
+check( 'link: verschiedene Beitragstypen => 400', is_wp_error( $res ) && $res->data['status'] === 400 );
+$res = BW_Bridge_Search::link_translation( link_req( 2124, [ 'translation_of' => 2124 ] ) );
+check( 'link: Beitrag mit sich selbst => 400', is_wp_error( $res ) && $res->data['status'] === 400 );
+$res = BW_Bridge_Search::link_translation( link_req( 2124, [ 'translation_of' => 999999 ] ) );
+check( 'link: unbekannte Quelle => 404', is_wp_error( $res ) && $res->data['status'] === 404 );
+$res = BW_Bridge_Search::link_translation( link_req( 2124, [] ) );
+check( 'link: ohne translation_of => 404', is_wp_error( $res ) );
+$GLOBALS['wpml'][2127] = [ 'trid' => 74, 'lang' => 'en' ]; post( 2127, 'product', 'Eins' ); post( 2128, 'product', 'Zwei' ); $GLOBALS['wpml'][2128] = [ 'trid' => 75, 'lang' => 'en' ];
+$res = BW_Bridge_Search::link_translation( link_req( 2128, [ 'translation_of' => 2127, 'language' => 'de' ] ) );
+check( 'link: "language" setzt zugleich die Sprache des Beitrags', ! is_wp_error( $res ) && $GLOBALS['wpml'][2128]['lang'] === 'de' && (array) $res['translations'] === [ 'en' => 2127, 'de' => 2128 ] );
+$GLOBALS['filters'] = [];
+$res = BW_Bridge_Search::link_translation( link_req( 2124, [ 'translation_of' => 2121 ] ) );
+check( 'link: ohne WPML => 409', is_wp_error( $res ) && $res->data['status'] === 409 );
 
 /* ---------- Routen ---------- */
 BW_WP_Bridge::register_routes();

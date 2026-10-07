@@ -31,6 +31,7 @@ Texte, Suche, Meta, Stapel (ab Bridge 1.2):
   wp_bridge.py elementor-backups 1346                  # automatische Sicherungen vor jedem Speichern
   wp_bridge.py elementor-restore 1346 [--time 1700000000]
   wp_bridge.py translations 130                        # WPML: { de: 1346, en: 130 }
+  wp_bridge.py translation-link 2124 --of 2121 [--lang de]   # WPML: 2124 als Übersetzung von 2121 verbinden
   wp_bridge.py render 1346 -q Guthaben                 # sichtbarer Text im Frontend
   wp_bridge.py meta-get 1260 --prefix _bw_
   wp_bridge.py meta-set 1260 --set _bw_credit_valid_days=180 --dry-run
@@ -315,6 +316,9 @@ def main():
     s.add_argument("q"); s.add_argument("--types", help="z. B. page,product"); s.add_argument("--lang", help="WPML-Sprache, z. B. de")
     s.add_argument("--no-meta", action="store_true"); s.add_argument("--limit", type=int, default=50); s.add_argument("--json", dest="json_out", action="store_true")
     s = sub.add_parser("translations", help="WPML-Übersetzungen eines Beitrags"); s.add_argument("id", type=int)
+    s = sub.add_parser("translation-link", help="Beitrag als WPML-Übersetzung eines anderen verbinden"); s.add_argument("id", type=int)
+    s.add_argument("--of", dest="of", type=int, required=True, help="ID des Beitrags in der Ausgangssprache")
+    s.add_argument("--lang", help="Sprache des Beitrags setzen (z. B. de); ohne Angabe bleibt sie")
     s = sub.add_parser("render", help="Sichtbarer Text einer Seite im Frontend"); s.add_argument("id", type=int)
     s.add_argument("-q", help="nur Zeilen mit diesem Text"); s.add_argument("--limit", type=int, default=400)
     s = sub.add_parser("meta-get", help="Post-Meta eines Beitrags lesen"); s.add_argument("id", type=int)
@@ -394,6 +398,11 @@ def main():
         search_command(c, a)
     elif a.cmd == "translations":
         out(c.request("GET", "bw-bridge/v1/translations/%d" % a.id))
+    elif a.cmd == "translation-link":
+        body = {"translation_of": a.of}
+        if a.lang:
+            body["language"] = a.lang
+        out(c.request("POST", "bw-bridge/v1/translations/%d" % a.id, body))
     elif a.cmd == "render":
         q = [("limit", a.limit)] + ([("q", a.q)] if a.q else [])
         r = c.request("GET", "bw-bridge/v1/render/%d" % a.id, None, q)

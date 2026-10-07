@@ -49,6 +49,19 @@ check( 'extract: Shortcode', isset( $map['s1|settings.shortcode'] ) );
 check( 'extract: ignoriert tag, classes, link, styles, __globals__, Typografie, Icons', count( $map ) === 7 );
 check( 'extract: Widget-Typ wird mitgeliefert', $t[0]['widget_type'] === 'e-heading' );
 
+/* --- Elementor-Pro-Formular --- */
+$form = [ [ 'id' => 'f1', 'elType' => 'widget', 'widgetType' => 'form', 'settings' => [
+	'form_name' => 'Anfrage', 'input_size' => 'sm',
+	'form_fields' => [ [ 'custom_id' => 'name', 'field_type' => 'text', 'field_label' => 'Name', '_id' => 'a1b2c3d' ], [ 'custom_id' => 'x', 'field_type' => 'select', 'field_label' => 'Format', 'field_options' => "Online|online\nVor Ort|onsite", '_id' => 'e4f5a6b' ] ],
+	'email_to' => 'bw-cms@blickwert.at', 'email_content_2' => 'Namaste [field id="name"]', 'success_message' => 'Danke!', 'button_text' => 'Senden',
+] ] ];
+$fm = []; foreach ( BW_Bridge_Elementor_Texts::extract( $form ) as $x ) { $fm[ $x['path'] ] = $x['value']; }
+check( 'Formular: Feldbeschriftungen und Auswahloptionen', ( $fm['settings.form_fields[0].field_label'] ?? '' ) === 'Name' && isset( $fm['settings.form_fields[1].field_options'] ) );
+check( 'Formular: Empfänger, Bestätigungsmail, Erfolgsmeldung, Button', ( $fm['settings.email_to'] ?? '' ) === 'bw-cms@blickwert.at' && isset( $fm['settings.email_content_2'], $fm['settings.success_message'], $fm['settings.button_text'] ) );
+check( 'Formular: technische Felder (form_name, Typen, IDs) bleiben außen vor', ! isset( $fm['settings.form_name'] ) && ! isset( $fm['settings.input_size'] ) && count( $fm ) === 7 );
+BW_Bridge_Elementor_Texts::apply( $form, [ [ 'widget_id' => 'f1', 'path' => 'settings.email_to', 'value' => 'helena@souldateyoga.com', 'expect' => 'bw-cms@blickwert.at' ] ] );
+check( 'Formular: Empfänger per apply ändern', $form[0]['settings']['email_to'] === 'helena@souldateyoga.com' );
+
 /* --- parse_path --- */
 check( 'parse_path einfach', BW_Bridge_Elementor_Texts::parse_path( 'settings.title' ) === [ 'settings', 'title' ] );
 check( 'parse_path mit Index', BW_Bridge_Elementor_Texts::parse_path( 'settings.items[11].item_title' ) === [ 'settings', 'items', 11, 'item_title' ] );
