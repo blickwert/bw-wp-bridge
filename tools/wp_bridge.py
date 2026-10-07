@@ -30,6 +30,7 @@ Texte, Suche, Meta, Stapel (ab Bridge 1.2):
   wp_bridge.py elementor-put 42 seite.json --dry-run   # Textvergleich alt/neu, ohne zu speichern
   wp_bridge.py elementor-backups 12                  # automatische Sicherungen vor jedem Speichern
   wp_bridge.py elementor-restore 12 [--time 1700000000]
+  wp_bridge.py theme-builder-refresh                   # Theme-Builder-Bedingungen neu einlesen (nach Anlegen/Ändern per API)
   wp_bridge.py translations 12                         # WPML: { de: 34, en: 12 }
   wp_bridge.py translation-link 34 --of 12 [--lang de]  # WPML: 34 als Übersetzung von 12 verbinden
   wp_bridge.py render 12 -q Kontakt                 # sichtbarer Text im Frontend
@@ -299,6 +300,7 @@ def main():
     s = sub.add_parser("kit-put"); s.add_argument("file"); s.add_argument("--replace", action="store_true")
     s = sub.add_parser("template-import"); s.add_argument("file")
     sub.add_parser("clear-cache")
+    sub.add_parser("theme-builder-refresh", help="Elementor-Pro-Theme-Builder: Anzeigebedingungen neu einlesen")
     for name in ("cpt", "tax"):
         sub.add_parser(name + "-list")
         s = sub.add_parser(name + "-set"); s.add_argument("slug"); s.add_argument("--json"); s.add_argument("--file")
@@ -390,6 +392,12 @@ def main():
         print("Kit #%d aktualisiert (%d Einstellungen)" % (r["id"], len(r["settings"])))
     elif a.cmd == "template-import":
         out(c.request("POST", "bw-bridge/v1/elementor/templates", load_json(None, a.file)))
+    elif a.cmd == "theme-builder-refresh":
+        r = c.request("POST", "bw-bridge/v1/elementor/theme-builder/refresh")
+        for loc, items in r["conditions"].items():
+            for tid, conds in (items.items() if isinstance(items, dict) else enumerate(items)):
+                print("%-14s #%s  %s" % (loc, tid, conds))
+        print("neu eingelesen")
     elif a.cmd == "clear-cache":
         out(c.request("POST", "bw-bridge/v1/elementor/clear-cache"))
     elif a.cmd in ("elementor-texts", "elementor-set", "elementor-backups", "elementor-restore"):

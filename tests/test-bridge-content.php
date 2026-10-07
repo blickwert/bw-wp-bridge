@@ -10,7 +10,7 @@ $GLOBALS['posts'] = []; $GLOBALS['meta'] = []; $GLOBALS['filters'] = []; $GLOBAL
 $GLOBALS['routes'] = []; $GLOBALS['now'] = 1700000000;
 function add_action( ...$a ) {} function add_filter( ...$a ) {} function register_setting( ...$a ) {} function add_options_page( ...$a ) {}
 function register_rest_route( $ns, $route, $args = [] ) { $GLOBALS['routes'][ $ns . $route ] = $args; }
-function rest_get_url_prefix() { return 'wp-json'; } function plugin_dir_path( $f ) { return dirname( $f ) . '/'; } function get_option( $k, $d = false ) { return $d; }
+function rest_get_url_prefix() { return 'wp-json'; } function plugin_dir_path( $f ) { return dirname( $f ) . '/'; } function get_option( $k, $d = false ) { return array_key_exists( $k, $GLOBALS['opts'] ?? [] ) ? $GLOBALS['opts'][ $k ] : $d; }
 function current_user_can( $c ) { return ! empty( $GLOBALS['caps'][ $c ] ); }
 function rest_ensure_response( $d ) { return $d; } function is_wp_error( $x ) { return $x instanceof WP_Error; }
 function wp_json_encode( $d, $f = 0 ) { return json_encode( $d, $f ); } function wp_slash( $v ) { return is_string( $v ) ? addslashes( $v ) : $v; }
@@ -223,9 +223,19 @@ $GLOBALS['filters'] = [];
 $res = BW_Bridge_Search::link_translation( link_req( 2124, [ 'translation_of' => 2121 ] ) );
 check( 'link: ohne WPML => 409', is_wp_error( $res ) && $res->data['status'] === 409 );
 
+
+/* ---------- Theme Builder: Bedingungen neu einlesen ---------- */
+$res = BW_Bridge_Elementor::refresh_theme_builder();
+check( 'theme-builder: ohne Elementor-Pro-Theme-Builder => 409', is_wp_error( $res ) && $res->data['status'] === 409 );
+eval( 'namespace ElementorPro\\Modules\\ThemeBuilder { class Cache_Fake { public static $n = 0; function regenerate() { self::$n++; } } class Manager_Fake { function get_cache() { return new Cache_Fake(); } } class Module { static function instance() { return new self(); } function get_conditions_manager() { return new Manager_Fake(); } } }' );
+$GLOBALS['opts']['elementor_pro_theme_builder_conditions'] = [ 'archive' => [ 2178 => [ 'include/product_archive' ] ] ];
+$res = BW_Bridge_Elementor::refresh_theme_builder();
+check( 'theme-builder: baut die Zuordnung neu auf und meldet sie', ! is_wp_error( $res ) && $res['regenerated'] === true && \ElementorPro\Modules\ThemeBuilder\Cache_Fake::$n === 1 );
+check( 'theme-builder: Antwort enthält die aktuelle Zuordnung je Ort', (array) $res['conditions'] === [ 'archive' => [ 2178 => [ 'include/product_archive' ] ] ] );
+
 /* ---------- Routen ---------- */
 BW_WP_Bridge::register_routes();
-foreach ( [ 'search', 'batch', 'translations/(?P<id>\d+)', 'render/(?P<id>\d+)', 'meta/(?P<id>\d+)', 'elementor/(?P<id>\d+)/texts', 'elementor/(?P<id>\d+)/backups', 'elementor/(?P<id>\d+)/restore' ] as $route ) {
+foreach ( [ 'elementor/theme-builder/refresh', 'search', 'batch', 'translations/(?P<id>\d+)', 'render/(?P<id>\d+)', 'meta/(?P<id>\d+)', 'elementor/(?P<id>\d+)/texts', 'elementor/(?P<id>\d+)/backups', 'elementor/(?P<id>\d+)/restore' ] as $route ) {
 	check( "Route registriert: $route", isset( $GLOBALS['routes'][ 'bw-bridge/v1/' . $route ] ) );
 }
 

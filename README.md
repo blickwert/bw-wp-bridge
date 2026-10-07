@@ -10,6 +10,7 @@ dazu über dieses Plugin:
 | `GET/POST/DELETE theme/files` | Theme-Dateien auflisten, lesen, schreiben, löschen – **nur nach Freigabe im Backend** (siehe unten) |
 | `GET/POST theme/backups` | Sicherungen einer Theme-Datei auflisten bzw. zurückspielen |
 | `GET/POST elementor/{id}` | Elementor-Layout einer Seite/eines Beitrags/einer Vorlage lesen bzw. speichern (klassische und atomare Widgets); Speichern legt vorher automatisch eine Sicherung an, `"dry_run": true` liefert nur einen Textvergleich alt/neu |
+| `POST elementor/theme-builder/refresh` | Elementor Pro Theme Builder: Anzeigebedingungen aller Vorlagen neu einlesen und die aktuelle Zuordnung ausgeben (nötig, wenn eine Vorlage oder ihre Bedingung per API angelegt/gesetzt wurde) |
 | `GET/POST elementor/{id}/texts` | alle Texte einer Seite mit Widget-ID und Pfad lesen (`?q=` filtert) bzw. einzelne Texte gezielt setzen |
 | `GET elementor/{id}/backups`, `POST elementor/{id}/restore` | die letzten 10 automatischen Layout-Sicherungen auflisten bzw. eine zurückspielen |
 | `GET search?q=…` | Seiten, Beiträge, Produkte, Post-Meta und Elementor-Texte durchsuchen (`types`, `lang`, `meta`, `limit`) |
