@@ -1,0 +1,192 @@
+<?php
+/**
+ * Test für Sicherungen/Probelauf/Texte (Elementor), Suche, Meta, Stapel und WPML-Zuordnung gegen eine simulierte
+ * WordPress-Umgebung (Speicher statt Datenbank). Aufruf: php tests/test-bridge-content.php
+ */
+define( 'ABSPATH', __DIR__ . '/' );
+
+/* ---------- WordPress-Stubs ---------- */
+$GLOBALS['posts'] = []; $GLOBALS['meta'] = []; $GLOBALS['filters'] = []; $GLOBALS['caps'] = [ 'manage_options' => true ];
+$GLOBALS['routes'] = []; $GLOBALS['now'] = 1700000000;
+function add_action( ...$a ) {} function add_filter( ...$a ) {} function register_setting( ...$a ) {} function add_options_page( ...$a ) {}
+function register_rest_route( $ns, $route, $args = [] ) { $GLOBALS['routes'][ $ns . $route ] = $args; }
+function rest_get_url_prefix() { return 'wp-json'; } function plugin_dir_path( $f ) { return dirname( $f ) . '/'; } function get_option( $k, $d = false ) { return $d; }
+function current_user_can( $c ) { return ! empty( $GLOBALS['caps'][ $c ] ); }
+function rest_ensure_response( $d ) { return $d; } function is_wp_error( $x ) { return $x instanceof WP_Error; }
+function wp_json_encode( $d, $f = 0 ) { return json_encode( $d, $f ); } function wp_slash( $v ) { return is_string( $v ) ? addslashes( $v ) : $v; }
+function wp_strip_all_tags( $s ) { return trim( strip_tags( $s ) ); } function sanitize_key( $k ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( $k ) ); }
+function maybe_unserialize( $v ) { return $v; } function wp_parse_url( $u, $c = -1 ) { return parse_url( $u, $c ); }
+function get_post( $id ) { return $GLOBALS['posts'][ $id ] ?? null; }
+function get_post_meta( $id, $key = '', $single = false ) {
+	$all = $GLOBALS['meta'][ $id ] ?? [];
+	if ( '' === $key ) { return array_map( static fn( $v ) => $v, $all ); }
+	$vals = $all[ $key ] ?? [];
+	return $single ? ( $vals[0] ?? '' ) : $vals;
+}
+function add_post_meta( $id, $key, $v ) { $GLOBALS['meta'][ $id ][ $key ][] = stripslashes( $v ); return true; }
+function update_post_meta( $id, $key, $v ) { $GLOBALS['meta'][ $id ][ $key ] = [ is_string( $v ) ? stripslashes( $v ) : $v ]; return true; }
+function delete_post_meta( $id, $key, $v = '' ) {
+	if ( '' === $v ) { unset( $GLOBALS['meta'][ $id ][ $key ] ); return true; }
+	$GLOBALS['meta'][ $id ][ $key ] = array_values( array_filter( $GLOBALS['meta'][ $id ][ $key ] ?? [], static fn( $x ) => $x !== stripslashes( $v ) && $x !== $v ) );
+	return true;
+}
+function did_action( $a ) { return 1; }
+function time_now() { return $GLOBALS['now']; }
+function apply_filters( $tag, $v = null, ...$args ) { return isset( $GLOBALS['filters'][ $tag ] ) ? call_user_func( $GLOBALS['filters'][ $tag ], $v, ...$args ) : $v; }
+function has_filter( $tag ) { return isset( $GLOBALS['filters'][ $tag ] ); }
+function gmdate_stub() {}
+class WP_Error { public $code, $msg, $data; function __construct( $c, $m = '', $d = [] ) { $this->code = $c; $this->msg = $m; $this->data = $d; } function get_error_code() { return $this->code; } }
+class WP_REST_Request implements ArrayAccess {
+	public $method, $route, $q = [], $p = [], $json = null, $headers = [];
+	function __construct( $m = 'GET', $route = '', $p = [] ) { $this->method = $m; $this->route = $route; $this->p = $p; }
+	function offsetGet( $k ): mixed { return $this->p[ $k ] ?? null; } function offsetExists( $k ): bool { return isset( $this->p[ $k ] ); }
+	function offsetSet( $k, $v ): void { $this->p[ $k ] = $v; } function offsetUnset( $k ): void {}
+	function get_param( $k ) { return $this->q[ $k ] ?? $this->p[ $k ] ?? null; }
+	function get_json_params() { return $this->json; } function set_query_params( $a ) { $this->q = $a; } function get_query_params() { return $this->q; }
+	function set_header( $k, $v ) { $this->headers[ strtolower( $k ) ] = $v; } function set_body( $b ) { $this->json = json_decode( $b, true ); }
+	function get_header( $k ) { return $this->headers[ strtolower( $k ) ] ?? null; }
+}
+class WP_Fake_Response { public $status, $data; function __construct( $s, $d ) { $this->status = $s; $this->data = $d; } function get_status() { return $this->status; } }
+$GLOBALS['do_request_log'] = [];
+function rest_do_request( $req ) { $GLOBALS['do_request_log'][] = [ $req->method, $req->route, $req->get_query_params(), $req->json ]; return new WP_Fake_Response( 'fail' === ( $req->json['mode'] ?? '' ) ? 404 : 200, [ 'echo' => $req->route ] ); }
+function rest_get_server() { return new class { function response_to_data( $r, $embed ) { return $r->data; } }; }
+// Elementor-Dokument: speichert in die simulierte Meta-Tabelle
+eval( 'namespace Elementor; class Plugin { public static $instance; }' );
+class Fake_Doc { public $id; function __construct( $id ) { $this->id = $id; } function set_is_built_with_elementor( $b ) {}
+	function save( $d ) { $GLOBALS['meta'][ $this->id ]['_elementor_data'] = [ json_encode( $d['elements'] ) ]; $GLOBALS['meta'][ $this->id ]['_elementor_page_settings'] = [ $d['settings'] ]; return true; } }
+\Elementor\Plugin::$instance = new class { public $documents; function __construct() { $this->documents = new class { function get( $id, $x ) { return new Fake_Doc( $id ); } }; } };
+// wpdb: prüft, dass Platzhalter und Parameter zusammenpassen, und liefert vorgegebene IDs
+class Fake_Wpdb { public $posts = 'wp_posts', $postmeta = 'wp_postmeta', $ids = [], $last_sql = '', $last_args = [];
+	function esc_like( $s ) { return addcslashes( $s, '_%\\' ); }
+	function prepare( $sql, $args ) { $n = preg_match_all( '/%[sd]/', $sql ); if ( $n !== count( $args ) ) { throw new Exception( "Platzhalter $n != Parameter " . count( $args ) ); } $this->last_sql = $sql; $this->last_args = $args; return $sql; }
+	function get_col( $sql ) { return $this->ids; } }
+$GLOBALS['wpdb'] = new Fake_Wpdb();
+
+require __DIR__ . '/../bw-wp-bridge.php';
+
+$pass = 0; $fail = 0;
+function check( $name, $cond ) { global $pass, $fail; if ( $cond ) { $pass++; echo "PASS  $name\n"; } else { $fail++; echo "FAIL  $name\n"; } }
+function post( $id, $type, $title, $content = '', $name = '' ) { $GLOBALS['posts'][ $id ] = (object) [ 'ID' => $id, 'post_type' => $type, 'post_status' => 'publish', 'post_name' => $name ?: "p$id", 'post_title' => $title, 'post_content' => $content, 'post_excerpt' => '' ]; }
+function layout_json( $title ) {
+	return json_encode( [ [ 'id' => 'c1', 'elType' => 'container', 'settings' => [], 'elements' => [
+		[ 'id' => 'h1', 'elType' => 'widget', 'widgetType' => 'e-heading', 'settings' => [ 'title' => [ '$$type' => 'escaped-html', 'value' => $title ] ] ],
+		[ 'id' => 'e1', 'elType' => 'widget', 'widgetType' => 'text-editor', 'settings' => [ 'editor' => '<p>Gültig 120 Tage</p>' ] ],
+	] ] ] );
+}
+
+/* ---------- Elementor: Sicherung, Probelauf, Texte setzen, Wiederherstellen ---------- */
+post( 42, 'page', 'Seite' ); $GLOBALS['meta'][42] = [ '_elementor_data' => [ layout_json( 'Alt' ) ], '_elementor_page_settings' => [ [ 'template' => 'x' ] ] ];
+
+$r = new WP_REST_Request( 'POST', '', [ 'id' => 42 ] ); $r->json = [ 'changes' => [ [ 'widget_id' => 'h1', 'path' => 'settings.title', 'value' => 'Neu' ] ], 'dry_run' => true ];
+$res = BW_Bridge_Elementor_Texts::set_texts( $r );
+check( 'set_texts Probelauf: nichts gespeichert, keine Sicherung', ! $res['saved'] && $res['results'][0]['status'] === 'ok' && empty( $GLOBALS['meta'][42][ BW_Bridge_Elementor::BACKUP_META ] ) && strpos( $GLOBALS['meta'][42]['_elementor_data'][0], 'Alt' ) !== false );
+
+$r->json = [ 'changes' => [ [ 'widget_id' => 'h1', 'path' => 'settings.title', 'value' => 'Neu' ], [ 'widget_id' => 'nix', 'path' => 'settings.title', 'value' => 'x' ] ] ];
+$res = BW_Bridge_Elementor_Texts::set_texts( $r );
+check( 'set_texts: ein Fehler => nichts wird gespeichert', ! $res['saved'] && strpos( $GLOBALS['meta'][42]['_elementor_data'][0], 'Alt' ) !== false );
+
+$r->json = [ 'changes' => [ [ 'widget_id' => 'h1', 'path' => 'settings.title', 'value' => 'Neu', 'expect' => 'Alt' ] ] ];
+$GLOBALS['now'] = 1700000001; $res = BW_Bridge_Elementor_Texts::set_texts( $r );
+check( 'set_texts: gespeichert', $res['saved'] === true && strpos( $GLOBALS['meta'][42]['_elementor_data'][0], '"Neu"' ) !== false );
+check( 'set_texts: Sicherung des alten Stands angelegt', count( $GLOBALS['meta'][42][ BW_Bridge_Elementor::BACKUP_META ] ) === 1 );
+$list = BW_Bridge_Elementor::list_backups( new WP_REST_Request( 'GET', '', [ 'id' => 42 ] ) );
+$first_backup = $list['backups'][0]['time'];
+check( 'Sicherungen: Liste mit Beschriftung', count( $list['backups'] ) === 1 && $list['backups'][0]['label'] === 'Texte ändern' );
+
+// Layout speichern (save_elementor), Probelauf mit Textvergleich
+$w = new WP_REST_Request( 'POST', '', [ 'id' => 42 ] ); $w->json = [ 'elements' => json_decode( layout_json( 'Ganz neu' ), true ), 'dry_run' => true ];
+$res = BW_Bridge_Elementor::save_elementor( $w );
+check( 'save_elementor Probelauf: Textvergleich, nichts gespeichert', $res['dry_run'] && $res['texts']['changed'][0]['old'] === 'Neu' && $res['texts']['changed'][0]['new'] === 'Ganz neu' && strpos( $GLOBALS['meta'][42]['_elementor_data'][0], '"Neu"' ) !== false );
+check( 'save_elementor Probelauf: Elementzahlen', $res['elements'] === [ 'before' => 3, 'after' => 3 ] );
+
+// Wiederherstellen
+$rr = new WP_REST_Request( 'POST', '', [ 'id' => 42 ] ); $rr->json = [];
+$res = BW_Bridge_Elementor::restore_backup( $rr );
+check( 'restore: neueste Sicherung zurückgespielt', $res['restored'] === $first_backup && strpos( $GLOBALS['meta'][42]['_elementor_data'][0], '"Alt"' ) !== false );
+check( 'restore: sichert vorher den aktuellen Stand', count( $GLOBALS['meta'][42][ BW_Bridge_Elementor::BACKUP_META ] ) === 2 );
+$rr->json = [ 'time' => 5 ];
+check( 'restore: unbekannter Zeitpunkt => Fehler', is_wp_error( BW_Bridge_Elementor::restore_backup( $rr ) ) );
+
+// Begrenzung auf die letzten 10 Sicherungen
+for ( $i = 0; $i < 15; $i++ ) { $GLOBALS['now'] = 1700001000 + $i; $r->json = [ 'changes' => [ [ 'widget_id' => 'h1', 'path' => 'settings.title', 'value' => "V$i" ] ] ]; BW_Bridge_Elementor_Texts::set_texts( $r ); }
+check( 'Sicherungen: höchstens ' . BW_Bridge_Elementor::BACKUPS_KEEP, count( $GLOBALS['meta'][42][ BW_Bridge_Elementor::BACKUP_META ] ) === BW_Bridge_Elementor::BACKUPS_KEEP );
+$times = array_column( BW_Bridge_Elementor::list_backups( new WP_REST_Request( 'GET', '', [ 'id' => 42 ] ) )['backups'], 'time' );
+check( 'Sicherungen: neueste zuerst, eindeutig, älteste verworfen', $times === array_values( array_unique( $times ) ) && $times[0] === max( $times ) && ! in_array( $first_backup, $times, true ) );
+check( 'Sicherungen: Wiederherstellen per Zeitpunkt ist eindeutig', ( function () use ( $times ) { $x = new WP_REST_Request( 'POST', '', [ 'id' => 42 ] ); $x->json = [ 'time' => $times[3] ]; return BW_Bridge_Elementor::restore_backup( $x )['restored'] === $times[3]; } )() );
+
+// get_texts mit Filter
+$g = new WP_REST_Request( 'GET', '', [ 'id' => 42 ] ); $g->q = [ 'q' => '120' ];
+$res = BW_Bridge_Elementor_Texts::get_texts( $g );
+check( 'get_texts: Filter q', $res['count'] === 1 && $res['texts'][0]['widget_id'] === 'e1' );
+
+/* ---------- Meta ---------- */
+post( 7, 'product', 'Single Class' ); $GLOBALS['meta'][7] = [ '_bw_feature_3_desc' => [ 'Lorem Ipsum' ], '_bw_credit_valid_days' => [ '0' ], '_elementor_data' => [ '[]' ], 'plain' => [ 'a', 'b' ] ];
+$res = BW_Bridge_Meta::get_meta( new WP_REST_Request( 'GET', '', [ 'id' => 7 ] ) );
+check( 'meta-get: ohne _elementor_data, Mehrfachwerte als Liste', ! isset( $res['meta']->_elementor_data ) && $res['meta']->plain === [ 'a', 'b' ] && $res['meta']->_bw_credit_valid_days === '0' );
+$q = new WP_REST_Request( 'GET', '', [ 'id' => 7 ] ); $q->q = [ 'prefix' => '_bw_' ];
+check( 'meta-get: prefix', array_keys( (array) BW_Bridge_Meta::get_meta( $q )['meta'] ) === [ '_bw_credit_valid_days', '_bw_feature_3_desc' ] );
+$m = new WP_REST_Request( 'POST', '', [ 'id' => 7 ] ); $m->json = [ 'set' => [ '_bw_feature_3_desc' => '' , '_bw_credit_valid_days' => '180' ], 'dry_run' => true ];
+$res = BW_Bridge_Meta::set_meta( $m );
+check( 'meta-set Probelauf: nichts geändert, alt/neu gemeldet', $res['changes']->_bw_credit_valid_days === [ 'old' => '0', 'new' => '180' ] && $GLOBALS['meta'][7]['_bw_credit_valid_days'] === [ '0' ] );
+$m->json = [ 'set' => [ '_bw_credit_valid_days' => '180' ], 'delete' => [ 'plain' ] ]; $res = BW_Bridge_Meta::set_meta( $m );
+check( 'meta-set: geschrieben und gelöscht', $GLOBALS['meta'][7]['_bw_credit_valid_days'] === [ '180' ] && ! isset( $GLOBALS['meta'][7]['plain'] ) );
+$m->json = [ 'set' => [ '_elementor_data' => 'x' ] ];
+check( 'meta-set: _elementor_data gesperrt', is_wp_error( BW_Bridge_Meta::set_meta( $m ) ) && $GLOBALS['meta'][7]['_elementor_data'] === [ '[]' ] );
+$m->json = [ 'delete' => [ BW_Bridge_Elementor::BACKUP_META ] ];
+check( 'meta-set: Sicherungs-Feld gesperrt', is_wp_error( BW_Bridge_Meta::set_meta( $m ) ) );
+
+/* ---------- Stapel ---------- */
+$b = new WP_REST_Request( 'POST' ); $b->json = [ 'operations' => [
+	[ 'method' => 'POST', 'path' => 'wc/v3/products/158?lang=en', 'body' => [ 'name' => 'X' ] ],
+	[ 'method' => 'GET', 'path' => '/wp/v2/pages', 'query' => [ 'per_page' => 5 ] ],
+] ];
+$res = BW_Bridge_Batch::run( $b );
+check( 'batch: führt alle aus', count( $res['results'] ) === 2 && $res['results'][0]['status'] === 200 && ! $res['stopped'] );
+check( 'batch: Route, Query und Body werden übergeben', $GLOBALS['do_request_log'][0][1] === '/wc/v3/products/158' && $GLOBALS['do_request_log'][0][2] === [ 'lang' => 'en' ] && $GLOBALS['do_request_log'][0][3] === [ 'name' => 'X' ] && $GLOBALS['do_request_log'][1][2] === [ 'per_page' => 5 ] );
+$b->json = [ 'operations' => [ [ 'method' => 'POST', 'path' => 'a/b', 'body' => [ 'mode' => 'fail' ] ], [ 'method' => 'GET', 'path' => 'c' ] ] ];
+$res = BW_Bridge_Batch::run( $b );
+check( 'batch: stoppt standardmäßig beim ersten Fehler', count( $res['results'] ) === 1 && $res['stopped'] === true );
+$b->json['stop_on_error'] = false; $res = BW_Bridge_Batch::run( $b );
+check( 'batch: stop_on_error=false macht weiter', count( $res['results'] ) === 2 && $res['stopped'] === false );
+$b->json = [ 'operations' => [ [ 'method' => 'POST', 'path' => 'bw-bridge/v1/batch' ] ] ];
+check( 'batch: verschachtelter Stapel abgelehnt', BW_Bridge_Batch::run( $b )['results'][0]['status'] === 400 );
+$b->json = [ 'operations' => [] ]; check( 'batch: leere Liste => Fehler', is_wp_error( BW_Bridge_Batch::run( $b ) ) );
+$b->json = [ 'operations' => array_fill( 0, 51, [ 'path' => 'x' ] ) ]; check( 'batch: mehr als 50 => Fehler', is_wp_error( BW_Bridge_Batch::run( $b ) ) );
+
+/* ---------- Suche + WPML ---------- */
+post( 130, 'page', 'Your Journey' ); post( 1346, 'page', 'Deine Yogareise' ); post( 9, 'page', 'Kontakt', 'nichts' );
+$GLOBALS['meta'][130] = [ '_elementor_data' => [ layout_json( 'Credits explained' ) ] ];
+$GLOBALS['meta'][1346] = [ '_elementor_data' => [ layout_json( 'So funktioniert das Creditsystem' ) ], '_bw_note' => [ 'Credit Hinweis' ] ];
+$GLOBALS['wpdb']->ids = [ 1346, 130, 9 ];
+$GLOBALS['filters']['wpml_element_language_details'] = static function ( $v, $a ) { return (object) [ 'language_code' => in_array( $a['element_id'], [ 1346 ], true ) ? 'de' : 'en' ]; };
+$s = new WP_REST_Request( 'GET' ); $s->q = [ 'q' => 'Credit' ];
+$res = BW_Bridge_Search::search( $s );
+check( 'search: Treffer in Elementor-Text und Meta, Beitrag ohne Treffer fehlt', $res['count'] === 2 && $res['results'][0]['id'] === 1346 );
+$wheres = array_column( $res['results'][0]['hits'], 'where' );
+check( 'search: Fundstellen elementor + meta mit Widget-ID/Key', in_array( 'elementor', $wheres, true ) && in_array( 'meta', $wheres, true ) && $res['results'][0]['hits'][0]['widget_id'] === 'h1' );
+check( 'search: Sprache wird mitgeliefert', $res['results'][0]['lang'] === 'de' && $res['results'][1]['lang'] === 'en' );
+$s->q = [ 'q' => 'Credit', 'lang' => 'de' ]; $res = BW_Bridge_Search::search( $s );
+check( 'search: lang-Filter', $res['count'] === 1 && $res['results'][0]['id'] === 1346 );
+$s->q = [ 'q' => 'Credit', 'types' => 'page,product', 'meta' => '0' ]; $res = BW_Bridge_Search::search( $s );
+check( 'search: SQL-Platzhalter passen (types, meta=0)', strpos( $GLOBALS['wpdb']->last_sql, 'p.post_type IN (%s,%s)' ) !== false && strpos( $GLOBALS['wpdb']->last_sql, 'm.meta_value' ) === false );
+$s->q = [ 'q' => 'Gültig' ]; BW_Bridge_Search::search( $s );
+check( 'search: Umlaute werden zusätzlich JSON-escaped gesucht (Elementor)', in_array( '%G\\\\u00fcltig%', $GLOBALS['wpdb']->last_args, true ) );
+$s->q = [ 'q' => 'a' ]; check( 'search: zu kurzer Suchbegriff => Fehler', is_wp_error( BW_Bridge_Search::search( $s ) ) );
+
+$GLOBALS['filters']['wpml_element_type'] = static fn( $t ) => "post_$t";
+$GLOBALS['filters']['wpml_element_trid'] = static fn( $v, $id, $type ) => 55;
+$GLOBALS['filters']['wpml_get_element_translations'] = static fn( $v, $trid, $type ) => [ 'en' => (object) [ 'element_id' => 130 ], 'de' => (object) [ 'element_id' => 1346 ] ];
+$res = BW_Bridge_Search::translations( new WP_REST_Request( 'GET', '', [ 'id' => 130 ] ) );
+check( 'translations: WPML-Zuordnung', $res['wpml'] && (array) $res['translations'] === [ 'en' => 130, 'de' => 1346 ] && $res['language'] === 'en' );
+$GLOBALS['filters'] = [];
+$res = BW_Bridge_Search::translations( new WP_REST_Request( 'GET', '', [ 'id' => 130 ] ) );
+check( 'translations: ohne WPML wpml=false', $res['wpml'] === false );
+
+/* ---------- Routen ---------- */
+BW_WP_Bridge::register_routes();
+foreach ( [ 'search', 'batch', 'translations/(?P<id>\d+)', 'render/(?P<id>\d+)', 'meta/(?P<id>\d+)', 'elementor/(?P<id>\d+)/texts', 'elementor/(?P<id>\d+)/backups', 'elementor/(?P<id>\d+)/restore' ] as $route ) {
+	check( "Route registriert: $route", isset( $GLOBALS['routes'][ 'bw-bridge/v1/' . $route ] ) );
+}
+
+echo "\n" . ( $fail ? "$fail FEHLGESCHLAGEN, $pass bestanden" : "$pass/$pass Prüfungen bestanden" ) . "\n";
+exit( $fail ? 1 : 0 );

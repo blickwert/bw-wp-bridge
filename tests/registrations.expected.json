@@ -46,6 +46,13 @@
             []
         ],
         [
+            "bw-bridge/v1/batch",
+            "POST",
+            "run",
+            "can_manage",
+            []
+        ],
+        [
             "bw-bridge/v1/elementor/(?P<id>\\d+)",
             "GET",
             "get_elementor",
@@ -56,6 +63,34 @@
             "bw-bridge/v1/elementor/(?P<id>\\d+)",
             "POST",
             "save_elementor",
+            "can_edit_post",
+            []
+        ],
+        [
+            "bw-bridge/v1/elementor/(?P<id>\\d+)/backups",
+            "GET",
+            "list_backups",
+            "can_edit_post",
+            []
+        ],
+        [
+            "bw-bridge/v1/elementor/(?P<id>\\d+)/restore",
+            "POST",
+            "restore_backup",
+            "can_edit_post",
+            []
+        ],
+        [
+            "bw-bridge/v1/elementor/(?P<id>\\d+)/texts",
+            "GET",
+            "get_texts",
+            "can_edit_post",
+            []
+        ],
+        [
+            "bw-bridge/v1/elementor/(?P<id>\\d+)/texts",
+            "POST",
+            "set_texts",
             "can_edit_post",
             []
         ],
@@ -88,6 +123,20 @@
             []
         ],
         [
+            "bw-bridge/v1/meta/(?P<id>\\d+)",
+            "GET",
+            "get_meta",
+            "closure",
+            []
+        ],
+        [
+            "bw-bridge/v1/meta/(?P<id>\\d+)",
+            "POST",
+            "set_meta",
+            "closure",
+            []
+        ],
+        [
             "bw-bridge/v1/post-types",
             "GET",
             "closure",
@@ -105,6 +154,20 @@
             "bw-bridge/v1/post-types/(?P<slug>[a-z0-9_-]{1,32})",
             "POST",
             "closure",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/render/(?P<id>\\d+)",
+            "GET",
+            "render",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/search",
+            "GET",
+            "search",
             "can_manage",
             []
         ],
@@ -185,6 +248,13 @@
                 "theme",
                 "path"
             ]
+        ],
+        [
+            "bw-bridge/v1/translations/(?P<id>\\d+)",
+            "GET",
+            "translations",
+            "can_manage",
+            []
         ]
     ],
     "settings": [

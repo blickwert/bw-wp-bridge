@@ -7,6 +7,7 @@ Umgebungsvariablen:
   WP_USER           WordPress-Benutzername
   WP_APP_PASSWORD   Anwendungspasswort (Profil › Anwendungspasswörter)
   WP_BASIC_AUTH     optional, "user:passwort" falls der Server per .htpasswd geschützt ist
+  WP_TIMEOUT        optional, Sekunden pro Anfrage (Standard 120; auch --timeout)
 
 Beispiele:
   wp_bridge.py status
@@ -20,6 +21,20 @@ Beispiele:
   wp_bridge.py template-import templates/header-hauptnavigation.json
   wp_bridge.py cpt-set event --json '{"label":"Veranstaltungen","menu_icon":"dashicons-calendar"}'
   wp_bridge.py tax-set event_category --json '{"object_types":["event"],"args":{"label":"Kategorien"}}'
+
+Texte, Suche, Meta, Stapel (ab Bridge 1.2):
+  wp_bridge.py search "Credits" --lang de              # Seiten, Produkte, Meta und Elementor-Texte durchsuchen
+  wp_bridge.py elementor-texts 1346 -q Workshops       # alle Texte einer Seite mit Widget-ID und Pfad
+  wp_bridge.py elementor-set 1346 8db1a15 settings.title "Workshops &amp; Vertiefungskurse" --dry-run
+  wp_bridge.py elementor-set 1346 --file aenderungen.json   # [{"widget_id","path","value","expect"?}, …]
+  wp_bridge.py elementor-put 42 seite.json --dry-run   # Textvergleich alt/neu, ohne zu speichern
+  wp_bridge.py elementor-backups 1346                  # automatische Sicherungen vor jedem Speichern
+  wp_bridge.py elementor-restore 1346 [--time 1700000000]
+  wp_bridge.py translations 130                        # WPML: { de: 1346, en: 130 }
+  wp_bridge.py render 1346 -q Guthaben                 # sichtbarer Text im Frontend
+  wp_bridge.py meta-get 1260 --prefix _bw_
+  wp_bridge.py meta-set 1260 --set _bw_credit_valid_days=180 --dry-run
+  wp_bridge.py batch operationen.json                  # {"operations":[{"method","path","query"?,"body"?}, …]}
 
 Theme-Dateien (nur wenn im Backend unter Einstellungen › BW WP Bridge freigeschaltet):
   wp_bridge.py theme-ls woocommerce/emails -r          # Ordner auflisten (-r rekursiv)
@@ -52,6 +67,7 @@ class Client:
         # Bei .htpasswd-Schutz belegt die Server-Anmeldung den Authorization-Header;
         # das Anwendungspasswort geht dann als X-WP-Authorization (wertet das Bridge-Plugin aus).
         self.server_auth = os.environ.get("WP_BASIC_AUTH")
+        self.timeout = int(os.environ.get("WP_TIMEOUT") or 120)
 
     def url(self, path, query=None):
         path = path.lstrip("/")
@@ -72,7 +88,7 @@ class Client:
         else:
             req.add_header("Authorization", self.auth)
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read().decode()
         except urllib.error.HTTPError as e:
             raw = e.read().decode(errors="replace")
@@ -84,6 +100,8 @@ class Client:
             sys.exit("HTTP %s bei %s %s\n%s" % (e.code, method, path, msg))
         except urllib.error.URLError as e:
             sys.exit("Keine Verbindung zu %s: %s" % (self.base, e.reason))
+        except TimeoutError:
+            sys.exit("Zeitüberschreitung nach %d s bei %s %s (länger warten mit --timeout oder WP_TIMEOUT)" % (self.timeout, method, path))
         return json.loads(raw) if raw else None
 
 
@@ -161,6 +179,101 @@ def theme_command(c, a):
         print("wiederhergestellt: %s aus %s" % (r["path"], r["restored"]))
 
 
+def texts_command(c, a):
+    base = "bw-bridge/v1/elementor/%d" % a.id
+    if a.cmd == "elementor-texts":
+        r = c.request("GET", base + "/texts", None, [("q", a.q)] if a.q else None)
+        if a.out:
+            out(r, a.out)
+            return
+        for t in r["texts"]:
+            text = " ".join(t["value"].split())
+            print("%-9s %-18s %-34s %s" % (t["widget_id"], t["widget_type"], t["path"], text[:a.width]))
+        print("%d Texte" % r["count"])
+    elif a.cmd == "elementor-set":
+        if a.file:
+            changes = load_json(None, a.file)
+            changes = changes.get("changes", changes) if isinstance(changes, dict) else changes
+        else:
+            if not (a.widget_id and a.path and a.value is not None):
+                sys.exit("elementor-set: WIDGET_ID PATH WERT oder --file angeben.")
+            changes = [{"widget_id": a.widget_id, "path": a.path, "value": a.value}]
+            if a.expect is not None:
+                changes[0]["expect"] = a.expect
+        r = c.request("POST", base + "/texts", {"changes": changes, "dry_run": a.dry_run})
+        for x in r["results"]:
+            if x["status"] == "ok":
+                print("ok     %s %s\n         alt: %s\n         neu: %s" % (x["widget_id"], x["path"], " ".join(x["old"].split())[:160], " ".join(x["new"].split())[:160]))
+            else:
+                print("FEHLER %s %s: %s" % (x["widget_id"], x["path"], x.get("message")))
+        print("gespeichert" if r["saved"] else ("Probelauf, nichts gespeichert" if r["dry_run"] else "nichts gespeichert (Fehler in den Änderungen)"))
+        if not r["saved"] and not r["dry_run"]:
+            sys.exit(1)
+    elif a.cmd == "elementor-backups":
+        for b in c.request("GET", base + "/backups")["backups"]:
+            print("%d  %s  %8d Bytes  %s" % (b["time"], b["date"], b["bytes"], b["label"]))
+    else:
+        r = c.request("POST", base + "/restore", {"time": a.time} if a.time else {})
+        print("wiederhergestellt: Stand %d" % r["restored"])
+
+
+def search_command(c, a):
+    q = [("q", a.q), ("limit", a.limit)]
+    if a.types:
+        q.append(("types", a.types))
+    if a.lang:
+        q.append(("lang", a.lang))
+    if a.no_meta:
+        q.append(("meta", "0"))
+    r = c.request("GET", "bw-bridge/v1/search", None, q)
+    if a.json_out:
+        out(r)
+        return
+    for x in r["results"]:
+        print("#%d  %s  %s  [%s]%s  %s" % (x["id"], x["type"], x["status"], x["slug"], "  " + x["lang"] if x.get("lang") else "", x["title"]))
+        for h in x["hits"]:
+            where = h["where"] + (" %s %s" % (h["widget_id"], h["path"]) if h["where"] == "elementor" else (" " + h["key"] if h["where"] == "meta" else ""))
+            print("      %-52s %s" % (where, h["snippet"]))
+    print("%d Treffer-Beiträge" % r["count"])
+
+
+def meta_command(c, a):
+    base = "bw-bridge/v1/meta/%d" % a.id
+    if a.cmd == "meta-get":
+        q = []
+        if a.prefix:
+            q.append(("prefix", a.prefix))
+        if a.keys:
+            q.append(("keys", a.keys))
+        out(c.request("GET", base, None, q)["meta"])
+    else:
+        body = {"set": {}, "delete": a.delete or [], "dry_run": a.dry_run}
+        for kv in a.set or []:
+            k, _, v = kv.partition("=")
+            body["set"][k] = v
+        r = c.request("POST", base, body)
+        for k, ch in r["changes"].items():
+            print("%s: %r -> %r%s" % (k, ch["old"], ch["new"], " (gelöscht)" if ch.get("deleted") else ""))
+        print("Probelauf, nichts gespeichert" if r["dry_run"] else "gespeichert")
+
+
+def batch_command(c, a):
+    doc = load_json(None, a.file)
+    if isinstance(doc, list):
+        doc = {"operations": doc}
+    doc.setdefault("stop_on_error", not a.keep_going)
+    r = c.request("POST", "bw-bridge/v1/batch", doc)
+    for i, x in enumerate(r["results"]):
+        op = doc["operations"][i]
+        print("%3d  %s %s %s" % (x["status"], op.get("method", "GET").upper(), op["path"], "" if x["status"] < 400 else json.dumps(x["data"], ensure_ascii=False)[:200]))
+    if r["stopped"]:
+        print("Abgebrochen nach dem ersten Fehler.")
+    if a.out:
+        out(r, a.out)
+    if any(x["status"] >= 400 for x in r["results"]):
+        sys.exit(1)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -177,6 +290,7 @@ def main():
 
     s = sub.add_parser("elementor-get"); s.add_argument("id", type=int); s.add_argument("-o", "--out")
     s = sub.add_parser("elementor-put"); s.add_argument("id", type=int); s.add_argument("file")
+    s.add_argument("--dry-run", action="store_true", help="nur Textvergleich alt/neu, nichts speichern")
     s.add_argument("--template", help="z. B. elementor_canvas oder elementor_header_footer")
     s = sub.add_parser("page-from-template"); s.add_argument("file"); s.add_argument("--title", required=True)
     s.add_argument("--slug"); s.add_argument("--status", default="draft"); s.add_argument("--type", default="pages")
@@ -188,6 +302,27 @@ def main():
         sub.add_parser(name + "-list")
         s = sub.add_parser(name + "-set"); s.add_argument("slug"); s.add_argument("--json"); s.add_argument("--file")
         s = sub.add_parser(name + "-delete"); s.add_argument("slug")
+
+    s = sub.add_parser("elementor-texts", help="Alle Texte einer Seite mit Widget-ID und Pfad")
+    s.add_argument("id", type=int); s.add_argument("-q", help="nur Texte, die das enthalten"); s.add_argument("-o", "--out"); s.add_argument("--width", type=int, default=110)
+    s = sub.add_parser("elementor-set", help="Einzelne Texte gezielt setzen (mit Sicherung)")
+    s.add_argument("id", type=int); s.add_argument("widget_id", nargs="?"); s.add_argument("path", nargs="?"); s.add_argument("value", nargs="?")
+    s.add_argument("--expect", help="nur ändern, wenn der aktuelle Text genau so lautet")
+    s.add_argument("--file", help="JSON mit Liste von Änderungen"); s.add_argument("--dry-run", action="store_true")
+    s = sub.add_parser("elementor-backups", help="Automatische Layout-Sicherungen auflisten"); s.add_argument("id", type=int)
+    s = sub.add_parser("elementor-restore", help="Layout aus einer Sicherung wiederherstellen"); s.add_argument("id", type=int); s.add_argument("--time", type=int)
+    s = sub.add_parser("search", help="Seiten, Produkte, Meta und Elementor-Texte durchsuchen")
+    s.add_argument("q"); s.add_argument("--types", help="z. B. page,product"); s.add_argument("--lang", help="WPML-Sprache, z. B. de")
+    s.add_argument("--no-meta", action="store_true"); s.add_argument("--limit", type=int, default=50); s.add_argument("--json", dest="json_out", action="store_true")
+    s = sub.add_parser("translations", help="WPML-Übersetzungen eines Beitrags"); s.add_argument("id", type=int)
+    s = sub.add_parser("render", help="Sichtbarer Text einer Seite im Frontend"); s.add_argument("id", type=int)
+    s.add_argument("-q", help="nur Zeilen mit diesem Text"); s.add_argument("--limit", type=int, default=400)
+    s = sub.add_parser("meta-get", help="Post-Meta eines Beitrags lesen"); s.add_argument("id", type=int)
+    s.add_argument("--prefix"); s.add_argument("--keys", help="kommagetrennt")
+    s = sub.add_parser("meta-set", help="Post-Meta setzen/löschen"); s.add_argument("id", type=int)
+    s.add_argument("--set", action="append", metavar="KEY=WERT"); s.add_argument("--delete", action="append", metavar="KEY"); s.add_argument("--dry-run", action="store_true")
+    s = sub.add_parser("batch", help="Mehrere REST-Aufrufe in einer Anfrage"); s.add_argument("file")
+    s.add_argument("--keep-going", action="store_true", help="bei Fehlern weitermachen"); s.add_argument("-o", "--out")
 
     s = sub.add_parser("theme-ls", help="Ordner im Theme auflisten")
     s.add_argument("path", nargs="?", default=""); s.add_argument("-r", "--recursive", action="store_true")
@@ -202,8 +337,11 @@ def main():
     for name in ("theme-ls", "theme-get", "theme-put", "theme-rm", "theme-backups", "theme-restore"):
         sub.choices[name].add_argument("--parent", action="store_true", help="Parent-Theme statt aktivem Theme")
 
+    p.add_argument("--timeout", type=int, help="Sekunden pro Anfrage (Standard 120 oder WP_TIMEOUT)")
     a = p.parse_args()
     c = Client()
+    if a.timeout:
+        c.timeout = a.timeout
 
     if a.cmd == "status":
         out(c.request("GET", "bw-bridge/v1/status"))
@@ -219,7 +357,19 @@ def main():
         payload = elementor_payload(load_json(None, a.file))
         if a.template:
             payload.setdefault("settings", {})["template"] = a.template
+        if a.dry_run:
+            payload["dry_run"] = True
         r = c.request("POST", "bw-bridge/v1/elementor/%d" % a.id, payload)
+        if a.dry_run:
+            d = r["texts"]
+            print("Probelauf, nichts gespeichert. Elemente: %d -> %d" % (r["elements"]["before"], r["elements"]["after"]))
+            for x in d["changed"]:
+                print("geändert    %s %s\n   alt: %s\n   neu: %s" % (x["widget_id"], x["path"], " ".join(x["old"].split())[:160], " ".join(x["new"].split())[:160]))
+            for x in d["added"]:
+                print("hinzugefügt %s %s: %s" % (x["widget_id"], x["path"], " ".join(x["new"].split())[:160]))
+            for x in d["removed"]:
+                print("entfernt    %s %s: %s" % (x["widget_id"], x["path"], " ".join(x["old"].split())[:160]))
+            return
         print("gespeichert: #%d %s (%d Elemente oberste Ebene)" % (r["id"], r["title"], len(r["elements"])))
     elif a.cmd == "page-from-template":
         doc = load_json(None, a.file)
@@ -238,6 +388,21 @@ def main():
         out(c.request("POST", "bw-bridge/v1/elementor/templates", load_json(None, a.file)))
     elif a.cmd == "clear-cache":
         out(c.request("POST", "bw-bridge/v1/elementor/clear-cache"))
+    elif a.cmd in ("elementor-texts", "elementor-set", "elementor-backups", "elementor-restore"):
+        texts_command(c, a)
+    elif a.cmd == "search":
+        search_command(c, a)
+    elif a.cmd == "translations":
+        out(c.request("GET", "bw-bridge/v1/translations/%d" % a.id))
+    elif a.cmd == "render":
+        q = [("limit", a.limit)] + ([("q", a.q)] if a.q else [])
+        r = c.request("GET", "bw-bridge/v1/render/%d" % a.id, None, q)
+        print("\n".join(r["lines"]))
+        print("— %s (%d Zeilen)" % (r["url"], r["count"]), file=sys.stderr)
+    elif a.cmd in ("meta-get", "meta-set"):
+        meta_command(c, a)
+    elif a.cmd == "batch":
+        batch_command(c, a)
     elif a.cmd.startswith("theme-"):
         theme_command(c, a)
     else:
