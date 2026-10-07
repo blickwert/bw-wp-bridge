@@ -23,6 +23,18 @@ final class BW_Bridge_Elementor {
 			],
 		] );
 
+		register_rest_route( BW_WP_Bridge::NS, '/elementor/(?P<id>\d+)/backups', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'list_backups' ],
+			'permission_callback' => [ __CLASS__, 'can_edit_post' ],
+		] );
+
+		register_rest_route( BW_WP_Bridge::NS, '/elementor/(?P<id>\d+)/restore', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'restore_backup' ],
+			'permission_callback' => [ __CLASS__, 'can_edit_post' ],
+		] );
+
 		register_rest_route( BW_WP_Bridge::NS, '/elementor/kit', [
 			[ 'methods' => 'GET', 'callback' => [ __CLASS__, 'get_kit' ], 'permission_callback' => $admin ],
 			[ 'methods' => 'POST', 'callback' => [ __CLASS__, 'save_kit' ], 'permission_callback' => $admin ],
@@ -74,8 +86,10 @@ final class BW_Bridge_Elementor {
 	}
 
 	/**
-	 * Body: { "elements": [...], "settings": {...}, "template_type": "wp-page" }
+	 * Body: { "elements": [...], "settings": {...}, "template_type": "wp-page", "dry_run": false }
 	 * "settings" wird gemerged (z. B. { "template": "elementor_canvas", "hide_title": "yes" }).
+	 * Vor dem Speichern wird der bisherige Stand gesichert (siehe backups/restore); mit "dry_run" wird nichts gespeichert,
+	 * stattdessen kommt ein Textvergleich alt/neu zurück.
 	 */
 	public static function save_elementor( WP_REST_Request $r ) {
 		$el = self::elementor();
@@ -90,29 +104,135 @@ final class BW_Bridge_Elementor {
 		if ( ! isset( $body['elements'] ) || ! is_array( $body['elements'] ) ) {
 			return new WP_Error( 'bw_bridge_invalid', '"elements" (Array) fehlt.', [ 'status' => 400 ] );
 		}
+		if ( ! empty( $body['dry_run'] ) ) {
+			$current = self::layout( $id );
+			return rest_ensure_response( [
+				'id'       => $id,
+				'dry_run'  => true,
+				'saved'    => false,
+				'elements' => [ 'before' => self::count_elements( $current ), 'after' => self::count_elements( $body['elements'] ) ],
+				'texts'    => BW_Bridge_Elementor_Texts::diff( $current, $body['elements'] ),
+			] );
+		}
 		if ( ! empty( $body['template_type'] ) ) {
 			update_post_meta( $id, '_elementor_template_type', sanitize_key( $body['template_type'] ) );
 		}
+		$saved = self::persist( $id, $body['elements'], isset( $body['settings'] ) && is_array( $body['settings'] ) ? $body['settings'] : [], 'Layout speichern' );
+		if ( is_wp_error( $saved ) ) {
+			return $saved;
+		}
+		return self::get_elementor( $r );
+	}
 
-		$document = $el->documents->get( $id, false );
+	/** Elemente (Array) einer Seite, leer wenn noch kein Layout existiert. */
+	public static function layout( $id ) {
+		if ( ! get_post( (int) $id ) ) {
+			return new WP_Error( 'bw_bridge_not_found', 'Beitrag nicht gefunden.', [ 'status' => 404 ] );
+		}
+		$data = get_post_meta( (int) $id, '_elementor_data', true );
+		$arr  = $data ? json_decode( is_string( $data ) ? $data : wp_json_encode( $data ), true ) : [];
+		return is_array( $arr ) ? $arr : [];
+	}
+
+	private static function count_elements( array $elements ) {
+		$n = 0;
+		foreach ( $elements as $e ) {
+			$n += 1 + ( ! empty( $e['elements'] ) && is_array( $e['elements'] ) ? self::count_elements( $e['elements'] ) : 0 );
+		}
+		return $n;
+	}
+
+	/**
+	 * Speichert ein Layout über das Elementor-Dokument (nach einer Sicherung des bisherigen Stands).
+	 * $settings werden mit den vorhandenen Seiteneinstellungen gemerged.
+	 */
+	public static function persist( $id, array $elements, array $settings = [], $label = '' ) {
+		$el = self::elementor();
+		if ( is_wp_error( $el ) ) {
+			return $el;
+		}
+		$document = $el->documents->get( (int) $id, false );
 		if ( ! $document ) {
 			return new WP_Error( 'bw_bridge_document', 'Elementor-Dokument konnte nicht geladen werden.', [ 'status' => 500 ] );
 		}
+		self::backup( (int) $id, $label );
 		$document->set_is_built_with_elementor( true );
-
-		$settings = (array) ( get_post_meta( $id, '_elementor_page_settings', true ) ?: [] );
-		if ( isset( $body['settings'] ) && is_array( $body['settings'] ) ) {
-			$settings = array_merge( $settings, $body['settings'] );
-		}
-
-		$saved = $document->save( [
-			'elements' => $body['elements'],
-			'settings' => $settings,
-		] );
-		if ( ! $saved ) {
+		$merged = array_merge( (array) ( get_post_meta( (int) $id, '_elementor_page_settings', true ) ?: [] ), $settings );
+		if ( ! $document->save( [ 'elements' => $elements, 'settings' => $merged ] ) ) {
 			return new WP_Error( 'bw_bridge_save', 'Speichern fehlgeschlagen.', [ 'status' => 500 ] );
 		}
-		return self::get_elementor( $r );
+		return true;
+	}
+
+	/* ---- Sicherungen der Layouts (Post-Meta, die letzten BACKUPS_KEEP Stände) ---- */
+
+	const BACKUP_META  = '_bw_bridge_el_backup';
+	const BACKUPS_KEEP = 10;
+
+	private static function backup( $id, $label ) {
+		$elements = get_post_meta( $id, '_elementor_data', true );
+		if ( ! $elements ) {
+			return;
+		}
+		// Zeitstempel eindeutig und aufsteigend halten (mehrere Speicherungen in derselben Sekunde).
+		$last  = self::backups( $id );
+		$time  = max( time(), $last ? (int) $last[0]['time'] + 1 : 0 );
+		$entry = wp_json_encode( [
+			'time'     => $time,
+			'label'    => (string) $label,
+			'elements' => json_decode( is_string( $elements ) ? $elements : wp_json_encode( $elements ), true ),
+			'settings' => (object) ( get_post_meta( $id, '_elementor_page_settings', true ) ?: [] ),
+		] );
+		add_post_meta( $id, self::BACKUP_META, wp_slash( $entry ) );
+		$all = get_post_meta( $id, self::BACKUP_META, false );
+		while ( count( $all ) > self::BACKUPS_KEEP ) {
+			delete_post_meta( $id, self::BACKUP_META, array_shift( $all ) );
+		}
+	}
+
+	private static function backups( $id ) {
+		$list = [];
+		foreach ( get_post_meta( $id, self::BACKUP_META, false ) as $raw ) {
+			$b = json_decode( $raw, true );
+			if ( is_array( $b ) && isset( $b['time'] ) ) {
+				$list[] = $b + [ '_bytes' => strlen( $raw ) ];
+			}
+		}
+		usort( $list, static function ( $a, $b ) {
+			return $b['time'] <=> $a['time'];
+		} );
+		return $list;
+	}
+
+	/** GET elementor/{id}/backups – neueste zuerst. */
+	public static function list_backups( WP_REST_Request $r ) {
+		$out = [];
+		foreach ( self::backups( (int) $r['id'] ) as $b ) {
+			$out[] = [ 'time' => $b['time'], 'date' => gmdate( 'c', $b['time'] ), 'label' => $b['label'] ?? '', 'bytes' => $b['_bytes'] ];
+		}
+		return rest_ensure_response( [ 'id' => (int) $r['id'], 'backups' => $out ] );
+	}
+
+	/** POST elementor/{id}/restore – Body: { "time": 1700000000 } (ohne Angabe: neueste Sicherung). */
+	public static function restore_backup( WP_REST_Request $r ) {
+		$id   = (int) $r['id'];
+		$body = (array) $r->get_json_params();
+		$all  = self::backups( $id );
+		$pick = null;
+		foreach ( $all as $b ) {
+			if ( empty( $body['time'] ) || (int) $body['time'] === (int) $b['time'] ) {
+				$pick = $b;
+				break;
+			}
+		}
+		if ( ! $pick ) {
+			return new WP_Error( 'bw_bridge_not_found', 'Keine passende Sicherung.', [ 'status' => 404 ] );
+		}
+		$saved = self::persist( $id, (array) $pick['elements'], (array) ( $pick['settings'] ?? [] ), 'vor Wiederherstellung' );
+		if ( is_wp_error( $saved ) ) {
+			return $saved;
+		}
+		return rest_ensure_response( [ 'id' => $id, 'restored' => $pick['time'] ] );
 	}
 
 	/* ---- Kit: Global Colors, Global Fonts, Theme Style, Layout ---- */

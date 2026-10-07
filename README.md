@@ -9,7 +9,14 @@ dazu über dieses Plugin:
 | `GET status` | Versionen (WP, Elementor, Pro), aktives Kit, Theme, Stand der Theme-Dateifreigabe |
 | `GET/POST/DELETE theme/files` | Theme-Dateien auflisten, lesen, schreiben, löschen – **nur nach Freigabe im Backend** (siehe unten) |
 | `GET/POST theme/backups` | Sicherungen einer Theme-Datei auflisten bzw. zurückspielen |
-| `GET/POST elementor/{id}` | Elementor-Layout einer Seite/eines Beitrags/einer Vorlage lesen bzw. speichern (klassische Widgets) |
+| `GET/POST elementor/{id}` | Elementor-Layout einer Seite/eines Beitrags/einer Vorlage lesen bzw. speichern (klassische und atomare Widgets); Speichern legt vorher automatisch eine Sicherung an, `"dry_run": true` liefert nur einen Textvergleich alt/neu |
+| `GET/POST elementor/{id}/texts` | alle Texte einer Seite mit Widget-ID und Pfad lesen (`?q=` filtert) bzw. einzelne Texte gezielt setzen |
+| `GET elementor/{id}/backups`, `POST elementor/{id}/restore` | die letzten 10 automatischen Layout-Sicherungen auflisten bzw. eine zurückspielen |
+| `GET search?q=…` | Seiten, Beiträge, Produkte, Post-Meta und Elementor-Texte durchsuchen (`types`, `lang`, `meta`, `limit`) |
+| `GET translations/{id}` | WPML: Übersetzungen eines Beitrags (`{ de: 1346, en: 130 }`) |
+| `GET render/{id}` | sichtbarer Text der Seite im Frontend (`?q=` filtert Zeilen) |
+| `GET/POST meta/{id}` | Post-Meta lesen/setzen/löschen, auch für Felder, die ein Plugin nicht in der REST-API freigibt (`"dry_run"` möglich) |
+| `POST batch` | bis zu 50 REST-Aufrufe (auch `wp/v2/…`, `wc/v3/…`) in einer Anfrage; jede Operation läuft mit den Rechteprüfungen ihrer Route |
 | `GET/POST elementor/kit` | Global Colors, Global Fonts, Theme Style, Layout (Merge oder Ersetzen) |
 | `POST elementor/templates` | Elementor-Vorlagen-JSON in die Vorlagen-Bibliothek importieren |
 | `POST elementor/clear-cache` | Elementor-CSS neu erzeugen |
@@ -42,6 +49,37 @@ Zum Abschalten ohne Deaktivieren: `define( 'BW_WP_BRIDGE_DISABLED', true );` in 
 
 > Nur für Dev-/Staging-Server gedacht. Wer das Anwendungspasswort hat, hat Admin-Rechte über die API.
 > Das Passwort lässt sich im Profil jederzeit widerrufen.
+
+## Texte, Suche, Sicherungen (ab 1.2)
+
+Damit sich Inhalte schnell und ohne Handarbeit im Elementor-JSON ändern lassen:
+
+- **Texte statt Layout:** `elementor-texts` zeigt jeden Text mit Widget-ID, Widget-Typ und Pfad (`settings.title`,
+  `settings.editor`, `settings.items[11].item_title` …). `elementor-set` ändert nur diese Texte; Stile, Klassen und alles
+  andere bleiben unverändert. Atomare Widgets (`{ "$$type": "escaped-html", "value": … }`) und klassische Widgets werden gleich behandelt.
+  Mit `expect` wird nur geändert, wenn der aktuelle Text genau so lautet; legt keine neuen Felder an; bei einem Fehler in einer
+  Änderung wird nichts gespeichert.
+- **Probelauf:** `--dry-run` bei `elementor-set`, `elementor-put` und `meta-set` zeigt alt/neu, ohne etwas zu speichern.
+- **Sicherungen:** Jedes Speichern eines Layouts (`elementor-put`, `elementor-set`, Wiederherstellen) sichert vorher den alten Stand
+  als Post-Meta `_bw_bridge_el_backup` (die letzten 10 je Seite). `elementor-backups` listet sie, `elementor-restore` spielt eine zurück
+  (und sichert dabei den aktuellen Stand). Beim Löschen des Plugins werden sie entfernt.
+- **Suche:** `search` durchsucht Titel, Inhalt, Auszug, Post-Meta und die Elementor-Texte aller Beiträge (außer Papierkorb) und
+  nennt je Treffer die Fundstelle (bei Elementor Widget-ID und Pfad). Elementor speichert Text JSON-escaped (`ü` als `\u00fc`);
+  das wird berücksichtigt. Mit `--lang de` nur Beiträge dieser WPML-Sprache; `translations` liefert die Zuordnung der Sprachversionen.
+- **Prüfen im Frontend:** `render` holt die Seite von der eigenen URL und gibt den sichtbaren Text zeilenweise aus.
+- **Stapel:** `batch` führt mehrere Aufrufe in einer Anfrage aus (stoppt standardmäßig beim ersten Fehler).
+- **Zeitlimit:** `--timeout 300` (vor dem Befehl) oder `WP_TIMEOUT` für langsame Aufrufe.
+
+```bash
+wp_bridge.py search "Credits" --lang de
+wp_bridge.py elementor-texts 1346 -q Workshops
+wp_bridge.py elementor-set 1346 8db1a15 settings.title "Workshops &amp; Vertiefungskurse" --dry-run
+wp_bridge.py elementor-set 1346 --file aenderungen.json      # [{"widget_id","path","value","expect"?}, …]
+wp_bridge.py elementor-backups 1346 && wp_bridge.py elementor-restore 1346
+wp_bridge.py meta-get 1260 --prefix _bw_
+wp_bridge.py meta-set 1260 --set _bw_credit_valid_days=180
+wp_bridge.py batch operationen.json    # {"operations":[{"method":"POST","path":"wc/v3/products/158","body":{…}}, …]}
+```
 
 ## Theme-Dateien lesen und schreiben (optional)
 
@@ -90,7 +128,11 @@ uninstall.php                             räumt die Freigaben beim Löschen des
 includes/auth-bootstrap.php               läuft beim Laden: Anwendungspasswort hinter .htpasswd / CGI
 includes/class-bw-bridge.php              Kern: Module starten, Rechteprüfung, Route status
 includes/class-bw-bridge-auth.php         Route auth-check (Diagnose der Anmeldung)
-includes/class-bw-bridge-elementor.php    Layouts, Kit, Vorlagen-Import, CSS-Cache
+includes/class-bw-bridge-elementor.php    Layouts (mit Sicherungen und Probelauf), Kit, Vorlagen-Import, CSS-Cache
+includes/class-bw-bridge-elementor-texts.php  Texte lesen/setzen/vergleichen (reine Logik, ohne WordPress testbar)
+includes/class-bw-bridge-search.php       Suche, WPML-Zuordnung, Frontend-Text
+includes/class-bw-bridge-meta.php         Post-Meta lesen/schreiben
+includes/class-bw-bridge-batch.php        Stapelaufrufe
 includes/class-bw-bridge-content-types.php  eigene Post Types und Taxonomien
 includes/class-bw-bridge-theme-files.php  Theme-Dateien lesen/schreiben, Sicherungen
 admin/class-bw-bridge-settings.php        Einstellungsseite und Freigaben
@@ -123,6 +165,9 @@ wp_bridge.py post wp/v2/event --json '{"title":"Fachtagung 2027","status":"publi
 
 Ohne WordPress-Installation, in einer simulierten Umgebung (`php tests/…`):
 - `php tests/test-theme-files.php`: Theme-Dateizugriff (Rechte, Pfadschutz, Symlinks, Syntaxprüfung, Sicherung, Wiederherstellen).
+- `php tests/test-elementor-texts.php`: Texte auslesen/setzen/vergleichen (atomare und klassische Widgets, Wiederholer, Fehlerfälle).
+- `php tests/test-bridge-content.php`: Sicherungen, Wiederherstellen, Probelauf, Meta, Stapel, Suche, WPML-Zuordnung
+  (simulierte Umgebung, prüft u. a., dass die SQL-Platzhalter der Suche zu den Parametern passen).
 - `php tests/registrations.php --check`: Hooks, REST-Routen, Einstellungen und Menü bleiben bei Umbauten unverändert
   (nach gewollten Änderungen `php tests/registrations.php > tests/registrations.expected.json`).
 
