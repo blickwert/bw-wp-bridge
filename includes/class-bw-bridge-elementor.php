@@ -46,6 +46,12 @@ final class BW_Bridge_Elementor {
 			'permission_callback' => $admin,
 		] );
 
+		register_rest_route( BW_WP_Bridge::NS, '/elementor/theme-builder/refresh', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'refresh_theme_builder' ],
+			'permission_callback' => $admin,
+		] );
+
 		register_rest_route( BW_WP_Bridge::NS, '/elementor/clear-cache', [
 			'methods'             => 'POST',
 			'callback'            => [ __CLASS__, 'clear_cache' ],
@@ -290,6 +296,30 @@ final class BW_Bridge_Elementor {
 			return $result;
 		}
 		return rest_ensure_response( $result );
+	}
+
+	/**
+	 * POST elementor/theme-builder/refresh – liest die Anzeigebedingungen aller Theme-Builder-Vorlagen
+	 * (Header, Footer, Archiv, Einzelseite …) neu ein. Nötig, wenn eine Vorlage per API angelegt oder ihre Bedingung
+	 * (Meta _elementor_conditions) per API gesetzt wurde: Elementor Pro merkt sich die Zuordnung in einem Zwischenspeicher,
+	 * den sonst erst ein Speichern im Editor neu aufbaut. Antwort: die aktuelle Zuordnung je Ort.
+	 */
+	public static function refresh_theme_builder() {
+		$el = self::elementor();
+		if ( is_wp_error( $el ) ) {
+			return $el;
+		}
+		if ( ! class_exists( '\\ElementorPro\\Modules\\ThemeBuilder\\Module' ) ) {
+			return new WP_Error( 'bw_bridge_no_theme_builder', 'Der Elementor-Pro-Theme-Builder ist nicht aktiv.', [ 'status' => 409 ] );
+		}
+		$manager = \ElementorPro\Modules\ThemeBuilder\Module::instance()->get_conditions_manager();
+		$cache   = is_object( $manager ) && method_exists( $manager, 'get_cache' ) ? $manager->get_cache() : null;
+		if ( ! is_object( $cache ) || ! method_exists( $cache, 'regenerate' ) ) {
+			return new WP_Error( 'bw_bridge_unsupported', 'Diese Elementor-Pro-Version bietet das Neuaufbauen der Bedingungen nicht an.', [ 'status' => 501 ] );
+		}
+		$cache->regenerate();
+		$map = get_option( 'elementor_pro_theme_builder_conditions', [] );
+		return rest_ensure_response( [ 'regenerated' => true, 'conditions' => (object) ( is_array( $map ) ? $map : [] ) ] );
 	}
 
 	public static function clear_cache() {

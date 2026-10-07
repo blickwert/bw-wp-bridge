@@ -123,6 +123,13 @@
             []
         ],
         [
+            "bw-bridge/v1/elementor/theme-builder/refresh",
+            "POST",
+            "refresh_theme_builder",
+            "can_manage",
+            []
+        ],
+        [
             "bw-bridge/v1/meta/(?P<id>\\d+)",
             "GET",
             "get_meta",
