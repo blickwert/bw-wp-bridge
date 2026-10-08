@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BW WP Bridge
  * Description: Erweitert die WordPress-REST-API um Elementor-Layouts (mit Textzugriff und Sicherungen), Suche, Post-Meta, Stapelaufrufe, Elementor-Kit (Global Colors/Fonts), Vorlagen-Import, CPT- und Taxonomie-Definitionen sowie (optional, im Backend freizuschalten) das Lesen und Schreiben von Theme-Dateien – für die Arbeit mit Claude Code auf Dev-/Staging-Servern.
- * Version: 1.3.0
+ * Version: 1.3.1
  * Requires at least: 6.4
  * Requires PHP: 7.4
  * Author: blickwert
@@ -20,7 +20,7 @@ if ( defined( 'BW_WP_BRIDGE_DISABLED' ) && BW_WP_BRIDGE_DISABLED ) {
 	return;
 }
 
-define( 'BW_WP_BRIDGE_VERSION', '1.3.0' ); // zusammen mit "Version:" oben ändern
+define( 'BW_WP_BRIDGE_VERSION', '1.3.1' ); // zusammen mit "Version:" oben ändern
 define( 'BW_WP_BRIDGE_DIR', plugin_dir_path( __FILE__ ) );
 
 // Muss früh laufen, noch vor allen Hooks (Anmeldung per Anwendungspasswort).
