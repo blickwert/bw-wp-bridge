@@ -2,6 +2,7 @@
 /**
  * Einstellungsseite (Einstellungen › BW WP Bridge) und Freigaben für den Theme-Dateizugriff.
  * Die Optionen sind nicht über die REST-API änderbar. Hart abschalten: define( 'BW_WP_BRIDGE_FILES_DISABLED', true );
+ * bzw. für die Plugin-Installation define( 'BW_WP_BRIDGE_PLUGINS_DISABLED', true );
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -11,6 +12,7 @@ final class BW_Bridge_Settings {
 	const OPT_READ   = 'bw_bridge_files_read';
 	const OPT_WRITE  = 'bw_bridge_files_write';
 	const OPT_PARENT = 'bw_bridge_files_parent';
+	const OPT_PLUGINS = 'bw_bridge_plugins_install';
 	const PAGE       = 'bw-wp-bridge';
 	const GROUP      = 'bw_bridge_files';
 
@@ -44,6 +46,27 @@ final class BW_Bridge_Settings {
 		return ( defined( 'DISALLOW_FILE_EDIT' ) && DISALLOW_FILE_EDIT ) || ( defined( 'DISALLOW_FILE_MODS' ) && DISALLOW_FILE_MODS );
 	}
 
+	public static function plugins_hard_disabled() {
+		return defined( 'BW_WP_BRIDGE_PLUGINS_DISABLED' ) && BW_WP_BRIDGE_PLUGINS_DISABLED;
+	}
+
+	public static function can_install_plugins_enabled() {
+		return ! self::plugins_hard_disabled() && (bool) get_option( self::OPT_PLUGINS, 0 );
+	}
+
+	/** Plugin-Installation ist durch die wp-config.php gesperrt (DISALLOW_FILE_MODS). */
+	public static function config_blocks_plugins() {
+		return defined( 'DISALLOW_FILE_MODS' ) && DISALLOW_FILE_MODS;
+	}
+
+	public static function plugins_summary() {
+		return [
+			'install'             => self::can_install_plugins_enabled() && ! self::config_blocks_plugins(),
+			'config_blocks_write' => self::config_blocks_plugins(),
+			'hard_disabled'       => self::plugins_hard_disabled(),
+		];
+	}
+
 	public static function summary() {
 		$child  = get_stylesheet();
 		$parent = get_template();
@@ -62,7 +85,7 @@ final class BW_Bridge_Settings {
 		$bool = static function ( $v ) {
 			return $v ? 1 : 0;
 		};
-		foreach ( [ self::OPT_READ, self::OPT_WRITE, self::OPT_PARENT ] as $opt ) {
+		foreach ( [ self::OPT_READ, self::OPT_WRITE, self::OPT_PARENT, self::OPT_PLUGINS ] as $opt ) {
 			register_setting( self::GROUP, $opt, [ 'type' => 'boolean', 'sanitize_callback' => $bool, 'default' => 0, 'show_in_rest' => false ] );
 		}
 	}
@@ -82,6 +105,9 @@ final class BW_Bridge_Settings {
 		if ( self::hard_disabled() ) {
 			echo '<div class="notice notice-warning inline"><p>In der wp-config.php steht <code>BW_WP_BRIDGE_FILES_DISABLED</code>. Der Dateizugriff ist fest abgeschaltet.</p></div>';
 		}
+		if ( self::plugins_hard_disabled() ) {
+			echo '<div class="notice notice-warning inline"><p>In der wp-config.php steht <code>BW_WP_BRIDGE_PLUGINS_DISABLED</code>. Die Plugin-Installation ist fest abgeschaltet.</p></div>';
+		}
 		if ( self::config_blocks_writing() ) {
 			echo '<div class="notice notice-warning inline"><p>Die wp-config.php sperrt Dateiänderungen (<code>DISALLOW_FILE_EDIT</code> / <code>DISALLOW_FILE_MODS</code>). Schreiben ist deshalb nicht möglich, Lesen schon.</p></div>';
 		}
@@ -93,11 +119,12 @@ final class BW_Bridge_Settings {
 		if ( $parent && $parent->exists() ) {
 			self::checkbox_row( self::OPT_PARENT, 'Parent-Theme einbeziehen', 'Zusätzlich das Parent-Theme „' . esc_html( $parent->get( 'Name' ) ) . '“ (Ordner <code>' . esc_html( $parent->get_stylesheet() ) . '</code>) freigeben.' );
 		}
+		self::checkbox_row( self::OPT_PLUGINS, 'Plugins installieren und aktualisieren', 'Plugins aus dem wordpress.org-Verzeichnis, aus einer https-ZIP-Adresse oder aus einem hochgeladenen ZIP installieren (auf Wunsch aktivieren) und Plugins aktualisieren. Braucht zusätzlich die Rechte <code>install_plugins</code> / <code>update_plugins</code>. Auflisten der Plugins ist immer möglich.' );
 		echo '</tbody></table>';
 		echo '<p class="description">Aktives Theme: <strong>' . esc_html( $child->get( 'Name' ) ) . '</strong> (Ordner <code>' . esc_html( $child->get_stylesheet() ) . '</code>)</p>';
 		submit_button();
 		echo '</form>';
-		echo '<p class="description">Die Freigabe lässt sich nur hier ändern, nicht über die API. Wer das Anwendungspasswort hat, kann mit „schreiben“ PHP-Code im Theme ändern – nur auf Dev-/Staging-Servern einschalten und nach der Arbeit wieder ausschalten.</p></div>';
+		echo '<p class="description">Die Freigabe lässt sich nur hier ändern, nicht über die API. Wer das Anwendungspasswort hat, kann mit „schreiben“ PHP-Code im Theme ändern und mit „Plugins installieren“ beliebigen Plugin-Code ausführen – nur auf Dev-/Staging-Servern einschalten und nach der Arbeit wieder ausschalten.</p></div>';
 	}
 
 	private static function checkbox_row( $opt, $label, $help ) {

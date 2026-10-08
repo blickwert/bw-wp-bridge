@@ -39,6 +39,11 @@ Texte, Suche, Meta, Stapel (ab Bridge 1.2):
   wp_bridge.py batch operationen.json                  # {"operations":[{"method","path","query"?,"body"?}, …]}
 
 Theme-Dateien (nur wenn im Backend unter Einstellungen › BW WP Bridge freigeschaltet):
+  wp_bridge.py plugins                                 # installierte Plugins, Status, verfügbare Updates
+  wp_bridge.py plugin-install --slug wordpress-seo --activate      # aus dem wordpress.org-Verzeichnis
+  wp_bridge.py plugin-install --url https://…/plugin.zip --activate [--overwrite]
+  wp_bridge.py plugin-install --zip lokal.zip --activate [--overwrite]
+  wp_bridge.py plugin-update ordner/datei.php          # aktualisieren (Freigabe im Backend nötig)
   wp_bridge.py theme-ls woocommerce/emails -r          # Ordner auflisten (-r rekursiv)
   wp_bridge.py theme-get woocommerce/emails/customer-new-account.php -o alt.php
   wp_bridge.py theme-put woocommerce/emails/customer-new-account.php neu.php   # legt Sicherung an
@@ -132,6 +137,35 @@ def out(data, path=None):
         print("gespeichert:", path)
     else:
         print(text)
+
+
+def plugins_command(c, a):
+    base = "bw-bridge/v1/plugins"
+    if a.cmd == "plugins":
+        for pl in c.request("GET", base):
+            print("%-7s %-46s %-10s %s" % ("aktiv" if pl["active"] else "-", pl["plugin"], pl["version"], ("→ " + pl["update"]) if pl["update"] else ""))
+    elif a.cmd == "plugin-install":
+        given = [x for x in (a.slug, a.url, a.zip) if x]
+        if len(given) != 1:
+            sys.exit("Genau eine Quelle angeben: --slug, --url oder --zip.")
+        body = {"activate": a.activate, "overwrite": a.overwrite}
+        if a.slug:
+            body["slug"] = a.slug
+        elif a.url:
+            body["url"] = a.url
+        else:
+            with open(a.zip, "rb") as fh:
+                body["zip_base64"] = base64.b64encode(fh.read()).decode()
+        r = c.request("POST", base + "/install", body)
+        print("installiert: %s %s%s" % (r["plugin"], r["version"], " (aktiviert)" if r["activated"] else ""))
+        for m in r.get("messages", []):
+            print("  ", m)
+    elif a.cmd == "plugin-update":
+        r = c.request("POST", base + "/update", {"plugin": a.plugin})
+        if r["updated"]:
+            print("aktualisiert: %s %s → %s" % (r["plugin"], r["old_version"], r["version"]))
+        else:
+            print("%s %s: %s" % (r["plugin"], r["version"], r["message"]))
 
 
 def theme_command(c, a):
@@ -330,6 +364,11 @@ def main():
     s = sub.add_parser("batch", help="Mehrere REST-Aufrufe in einer Anfrage"); s.add_argument("file")
     s.add_argument("--keep-going", action="store_true", help="bei Fehlern weitermachen"); s.add_argument("-o", "--out")
 
+    sub.add_parser("plugins", help="Installierte Plugins auflisten")
+    s = sub.add_parser("plugin-install", help="Plugin installieren (Freigabe im Backend nötig)")
+    s.add_argument("--slug", help="wordpress.org-Slug"); s.add_argument("--url", help="https-Adresse eines ZIP"); s.add_argument("--zip", help="lokale ZIP-Datei")
+    s.add_argument("--activate", action="store_true"); s.add_argument("--overwrite", action="store_true", help="vorhandenes Plugin ersetzen (Update/Downgrade)")
+    s = sub.add_parser("plugin-update", help="Plugin aktualisieren (Freigabe im Backend nötig)"); s.add_argument("plugin", help="ordner/datei.php")
     s = sub.add_parser("theme-ls", help="Ordner im Theme auflisten")
     s.add_argument("path", nargs="?", default=""); s.add_argument("-r", "--recursive", action="store_true")
     s = sub.add_parser("theme-get", help="Datei aus dem Theme lesen")
@@ -422,6 +461,8 @@ def main():
         batch_command(c, a)
     elif a.cmd.startswith("theme-"):
         theme_command(c, a)
+    elif a.cmd in ("plugins", "plugin-install", "plugin-update"):
+        plugins_command(c, a)
     else:
         route = "post-types" if a.cmd.startswith("cpt") else "taxonomies"
         if a.cmd.endswith("-list"):

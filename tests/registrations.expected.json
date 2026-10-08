@@ -144,6 +144,35 @@
             []
         ],
         [
+            "bw-bridge/v1/plugins",
+            "GET",
+            "list_plugins",
+            "perm_list",
+            []
+        ],
+        [
+            "bw-bridge/v1/plugins/install",
+            "POST",
+            "install",
+            "perm_install",
+            [
+                "slug",
+                "url",
+                "zip_base64",
+                "activate",
+                "overwrite"
+            ]
+        ],
+        [
+            "bw-bridge/v1/plugins/update",
+            "POST",
+            "update",
+            "perm_update",
+            [
+                "plugin"
+            ]
+        ],
+        [
             "bw-bridge/v1/post-types",
             "GET",
             "closure",
@@ -289,6 +318,13 @@
         [
             "bw_bridge_files",
             "bw_bridge_files_write",
+            "boolean",
+            0,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_plugins_install",
             "boolean",
             0,
             false
