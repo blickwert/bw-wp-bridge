@@ -104,6 +104,25 @@ Website) und ist ein zweiter Faktor neben dem Anwendungspasswort.
 - „Neuen Schlüssel erzeugen“ macht den alten ungültig (die Kennung bleibt). „Schlüssel entfernen“ schaltet die Prüfung wieder aus. Ist kein Schlüssel eingerichtet, ändert sich nichts.
 - Die Einstellungen sind nicht über die REST-API änderbar.
 
+## Mehrere Websites
+
+Die Bridge ist für mehrere Websites gedacht. Der Client (`tools/wp_bridge.py`) liest pro Website einen **eigenen Satz** Umgebungsvariablen. `<NAME>` ist ein frei gewählter Name in Großbuchstaben (Ziffern und `_` erlaubt):
+
+| Variable | Bedeutung |
+|---|---|
+| `WP_<NAME>_URL` | Adresse der Website |
+| `WP_<NAME>_USER`, `WP_<NAME>_APP_PASSWORD` | Benutzer und Anwendungspasswort |
+| `WP_<NAME>_BRIDGE_KEY` | Verbindungsschlüssel (siehe oben), empfohlen |
+| `WP_<NAME>_BRIDGE_SITE` | Kennung der Website, empfohlen |
+| `WP_<NAME>_BASIC_AUTH`, `WP_<NAME>_TIMEOUT` | optional |
+
+Beispiel: `WP_SOULDATE_URL`, `WP_SOULDATE_USER`, `WP_SOULDATE_APP_PASSWORD`, `WP_SOULDATE_BRIDGE_KEY`, `WP_SOULDATE_BRIDGE_SITE` und dasselbe mit `WP_APPA_…`.
+
+- Auswahl: `wp_bridge.py --site souldate …` oder `WP_SITE=souldate`.
+- **Sicherheitsregel:** Sind mehrere Websites eingetragen und keine gewählt, bricht der Client ab, ohne etwas zu senden. Bei mehreren Websites steht auf der Fehlerausgabe zusätzlich `Website: <Name> (<Adresse>)`.
+- `wp_bridge.py sites` listet die eingetragenen Websites (ohne Geheimnisse, ohne Verbindung).
+- Der bisherige einzelne Satz (`WP_URL`, `WP_USER`, `WP_APP_PASSWORD`, …) funktioniert unverändert und heißt dann `default`.
+
 ## Plugins installieren und aktualisieren (optional)
 
 Mit der Freigabe **„Plugins installieren und aktualisieren“** (Einstellungen › BW WP Bridge, **standardmäßig aus**) kann die Bridge
