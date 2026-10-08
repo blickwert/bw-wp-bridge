@@ -11,6 +11,12 @@ Umgebungsvariablen:
   WP_BRIDGE_KEY     optional, Verbindungsschlüssel (Einstellungen › BW WP Bridge › Verbindungsschlüssel); wird bei jeder Anfrage mitgesendet
   WP_BRIDGE_SITE    optional, Kennung der Website (8 Zeichen, steht neben dem Schlüssel); der Client bricht ab, wenn die Website eine andere Kennung hat
 
+Mehrere Websites (je Website ein Satz mit Namen, NAME in Großbuchstaben):
+  WP_<NAME>_URL, WP_<NAME>_USER, WP_<NAME>_APP_PASSWORD, WP_<NAME>_BRIDGE_KEY, WP_<NAME>_BRIDGE_SITE
+  (optional auch WP_<NAME>_BASIC_AUTH, WP_<NAME>_TIMEOUT). Beispiel: WP_SOULDATE_URL, WP_APPA_URL, …
+  Auswahl: --site souldate  oder  WP_SITE=souldate.  Sind mehrere Websites eingetragen und keine gewählt, bricht der Client ab.
+  wp_bridge.py sites                     # eingetragene Websites auflisten (ohne Geheimnisse, ohne Verbindung)
+
 Beispiele:
   wp_bridge.py status
   wp_bridge.py auth-check                # Diagnose, falls 401 trotz Anwendungspasswort
@@ -59,26 +65,65 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
 
+SITE_FIELDS = {"URL": "url", "USER": "user", "APP_PASSWORD": "password", "BRIDGE_KEY": "key", "BRIDGE_SITE": "site", "BASIC_AUTH": "basic", "TIMEOUT": "timeout"}
+
+
+def load_sites(env=None):
+    """Alle eingetragenen Websites: {name: {url, user, password, key, site, basic, timeout}}.
+    Der klassische Satz (WP_URL, WP_USER, …) heißt "default"; benannte Sätze sind WP_<NAME>_URL usw."""
+    env = os.environ if env is None else env
+    sites = {}
+    if env.get("WP_URL"):
+        sites["default"] = {f: env.get("WP_" + k) for k, f in SITE_FIELDS.items()}
+    for key in env:
+        m = re.match(r"^WP_([A-Z0-9][A-Z0-9_]*)_URL$", key)
+        if not m or not env.get(key):
+            continue
+        name = m.group(1)
+        sites[name.lower()] = {f: env.get("WP_%s_%s" % (name, k)) for k, f in SITE_FIELDS.items()}
+    return sites
+
+
+def pick_site(sites, wanted=None):
+    """Wählt die Website. Genau eine eingetragen → diese; mehrere → nur mit --site / WP_SITE."""
+    if not sites:
+        sys.exit("Keine Website eingetragen (WP_URL, WP_USER, WP_APP_PASSWORD – oder je Website WP_<NAME>_URL …).")
+    wanted = (wanted or os.environ.get("WP_SITE") or "").strip().lower()
+    if wanted:
+        if wanted not in sites:
+            sys.exit("Unbekannte Website \"%s\". Eingetragen: %s" % (wanted, ", ".join(sorted(sites))))
+        return wanted, sites[wanted]
+    if len(sites) == 1:
+        name = next(iter(sites))
+        return name, sites[name]
+    sys.exit("Mehrere Websites eingetragen (%s) – bitte mit --site NAME oder WP_SITE wählen. Es wurde nichts gesendet." % ", ".join(sorted(sites)))
+
+
 class Client:
-    def __init__(self):
+    def __init__(self, cfg=None, name="default"):
+        cfg = cfg or load_sites().get("default") or {}
+        self.name = name
         try:
-            self.base = os.environ["WP_URL"].rstrip("/")
-            user, pw = os.environ["WP_USER"], os.environ["WP_APP_PASSWORD"]
+            self.base = (cfg.get("url") or os.environ["WP_URL"]).rstrip("/")
+            user, pw = cfg.get("user"), cfg.get("password")
+            if not user or not pw:
+                raise KeyError("WP_USER / WP_APP_PASSWORD" if name == "default" else "WP_%s_USER / WP_%s_APP_PASSWORD" % (name.upper(), name.upper()))
         except KeyError as e:
             sys.exit("Umgebungsvariable fehlt: %s" % e.args[0])
         self.auth = "Basic " + base64.b64encode(("%s:%s" % (user, pw)).encode()).decode()
         # Bei .htpasswd-Schutz belegt die Server-Anmeldung den Authorization-Header;
         # das Anwendungspasswort geht dann als X-WP-Authorization (wertet das Bridge-Plugin aus).
-        self.server_auth = os.environ.get("WP_BASIC_AUTH")
-        self.timeout = int(os.environ.get("WP_TIMEOUT") or 120)
-        self.key = os.environ.get("WP_BRIDGE_KEY")
-        self.expect_site = os.environ.get("WP_BRIDGE_SITE")
+        self.server_auth = cfg.get("basic")
+        self.timeout = int(cfg.get("timeout") or os.environ.get("WP_TIMEOUT") or 120)
+        self.key = cfg.get("key")
+        self.expect_site = cfg.get("site")
         self._site_checked = False
 
     def url(self, path, query=None):
@@ -401,9 +446,22 @@ def main():
     for name in ("theme-ls", "theme-get", "theme-put", "theme-rm", "theme-backups", "theme-restore"):
         sub.choices[name].add_argument("--parent", action="store_true", help="Parent-Theme statt aktivem Theme")
 
+    sub.add_parser("sites", help="Eingetragene Websites auflisten (ohne Geheimnisse, ohne Verbindung)")
     p.add_argument("--timeout", type=int, help="Sekunden pro Anfrage (Standard 120 oder WP_TIMEOUT)")
+    p.add_argument("--site", help="Website wählen (Name aus WP_<NAME>_URL, klein geschrieben; auch WP_SITE)")
     a = p.parse_args()
-    c = Client()
+    sites = load_sites()
+    if a.cmd == "sites":
+        if not sites:
+            sys.exit("Keine Website eingetragen.")
+        for n in sorted(sites):
+            cf = sites[n]
+            print("%-14s %s  (Schlüssel: %s, Kennung: %s)" % (n, cf["url"], "ja" if cf.get("key") else "nein", cf.get("site") or "-"))
+        sys.exit(0)
+    name, cfg = pick_site(sites, a.site)
+    c = Client(cfg, name)
+    if len(sites) > 1:
+        print("Website: %s (%s)" % (name, c.base), file=sys.stderr)
     if a.timeout:
         c.timeout = a.timeout
 
