@@ -14,6 +14,18 @@
         ],
         [
             "action",
+            "admin_post_bw_bridge_key_generate",
+            "handle_generate",
+            10
+        ],
+        [
+            "action",
+            "admin_post_bw_bridge_key_remove",
+            "handle_remove",
+            10
+        ],
+        [
+            "action",
             "init",
             "maybe_flush_rewrite",
             999
@@ -35,6 +47,12 @@
             "application_password_is_api_request",
             "closure",
             10
+        ],
+        [
+            "filter",
+            "rest_pre_dispatch",
+            "enforce",
+            5
         ]
     ],
     "routes": [
@@ -318,6 +336,13 @@
         [
             "bw_bridge_files",
             "bw_bridge_files_write",
+            "boolean",
+            0,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_key_all",
             "boolean",
             0,
             false
