@@ -8,6 +8,9 @@ dazu über dieses Plugin:
 |---|---|
 | `GET status` | Versionen (WP, Elementor, Pro), aktives Kit, Theme, Stand der Theme-Dateifreigabe |
 | `GET/POST/DELETE theme/files` | Theme-Dateien auflisten, lesen, schreiben, löschen – **nur nach Freigabe im Backend** (siehe unten) |
+| `GET plugins` | Installierte Plugins mit Status und verfügbarem Update |
+| `POST plugins/install` | Plugin installieren (`slug`, `url` oder `zip_base64`; optional `activate`, `overwrite`) – **nur nach Freigabe im Backend** (siehe unten) |
+| `POST plugins/update` | Plugin aktualisieren (`plugin`: `ordner/datei.php`) – nur nach Freigabe |
 | `GET/POST theme/backups` | Sicherungen einer Theme-Datei auflisten bzw. zurückspielen |
 | `GET/POST elementor/{id}` | Elementor-Layout einer Seite/eines Beitrags/einer Vorlage lesen bzw. speichern (klassische und atomare Widgets); Speichern legt vorher automatisch eine Sicherung an, `"dry_run": true` liefert nur einen Textvergleich alt/neu |
 | `POST elementor/theme-builder/refresh` | Elementor Pro Theme Builder: Anzeigebedingungen aller Vorlagen neu einlesen und die aktuelle Zuordnung ausgeben (nötig, wenn eine Vorlage oder ihre Bedingung per API angelegt/gesetzt wurde) |
@@ -84,6 +87,29 @@ wp_bridge.py meta-get 56 --prefix _shop_
 wp_bridge.py meta-set 56 --set _shop_hinweis=Text
 wp_bridge.py batch operationen.json    # {"operations":[{"method":"POST","path":"wp/v2/pages/12","body":{…}}, …]}
 ```
+
+## Plugins installieren und aktualisieren (optional)
+
+Mit der Freigabe **„Plugins installieren und aktualisieren“** (Einstellungen › BW WP Bridge, **standardmäßig aus**) kann die Bridge
+Plugins einspielen – auch eigene oder gekaufte, die nicht im wordpress.org-Verzeichnis liegen. Das Auflisten (`plugins`) geht immer.
+
+| Quelle | Aufruf |
+|---|---|
+| wordpress.org | `plugin-install --slug wordpress-seo --activate` |
+| https-ZIP (z. B. Release-Datei) | `plugin-install --url https://…/plugin.zip --activate` |
+| lokale ZIP-Datei | `plugin-install --zip plugin.zip --activate` |
+| vorhandenes Plugin ersetzen | zusätzlich `--overwrite` (Update oder Downgrade aus einem ZIP) |
+| Update aus dem Verzeichnis | `plugin-update ordner/datei.php` |
+
+- Nur Administratoren (`manage_options`) mit den Rechten `install_plugins` (Überschreiben/Aktualisieren: `update_plugins`, Aktivieren: `activate_plugins`).
+  Entfällt bei `DISALLOW_FILE_MODS` in der wp-config.php. Hart abschalten: `define( 'BW_WP_BRIDGE_PLUGINS_DISABLED', true );`
+- Installiert wird mit dem WordPress-Upgrader wie im Backend. Vorher wird das ZIP geprüft: nur `https`, keine Zugangsdaten in der Adresse,
+  keine internen Adressen (`wp_safe_remote_get`), höchstens 50 MB, ZIP-Kennung, keine Einträge mit `..` oder absolutem Pfad.
+- Optional nur bestimmte Hosts erlauben: `add_filter( 'bw_bridge_plugin_allowed_hosts', fn() => [ 'github.com' ] );`
+- Die Freigabe lässt sich nur im Backend ändern, nicht über die API.
+
+> Wer das Anwendungspasswort hat und die Freigabe eingeschaltet findet, kann beliebigen PHP-Code auf der Website ausführen
+> (jedes Plugin ist Code). Nur auf Dev-/Staging-Servern einschalten und danach wieder ausschalten.
 
 ## Theme-Dateien lesen und schreiben (optional)
 
