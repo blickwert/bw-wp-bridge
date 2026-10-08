@@ -6,7 +6,7 @@ dazu über dieses Plugin:
 
 | Route (`/wp-json/bw-bridge/v1/…`) | Zweck |
 |---|---|
-| `GET status` | Versionen (WP, Elementor, Pro), aktives Kit, Theme, Stand der Theme-Dateifreigabe |
+| `GET status` | Website-Kennung, Schlüsselstatus, Versionen (WP, Elementor, Pro), aktives Kit, Theme, Stand der Freigaben |
 | `GET/POST/DELETE theme/files` | Theme-Dateien auflisten, lesen, schreiben, löschen – **nur nach Freigabe im Backend** (siehe unten) |
 | `GET plugins` | Installierte Plugins mit Status und verfügbarem Update |
 | `POST plugins/install` | Plugin installieren (`slug`, `url` oder `zip_base64`; optional `activate`, `overwrite`) – **nur nach Freigabe im Backend** (siehe unten) |
@@ -87,6 +87,22 @@ wp_bridge.py meta-get 56 --prefix _shop_
 wp_bridge.py meta-set 56 --set _shop_hinweis=Text
 wp_bridge.py batch operationen.json    # {"operations":[{"method":"POST","path":"wp/v2/pages/12","body":{…}}, …]}
 ```
+
+## Verbindungsschlüssel (empfohlen)
+
+Mit dem Verbindungsschlüssel verbindest du **genau eine Website** mit dem Client. Er schützt vor Verwechslungen (eine Umgebung zeigt versehentlich auf eine andere
+Website) und ist ein zweiter Faktor neben dem Anwendungspasswort.
+
+1. Einstellungen › BW WP Bridge › **Verbindungsschlüssel › „Schlüssel erzeugen“**. Der Schlüssel (`bwk_…`) wird **nur einmal** angezeigt, in der Datenbank liegt nur ein Hash.
+2. Im Client eintragen: `WP_BRIDGE_KEY=bwk_…` (zusammen mit `WP_URL`, `WP_USER`, `WP_APP_PASSWORD`). Nicht in einen Chat einfügen.
+3. Optional die **Kennung** der Website (8 Zeichen, nicht geheim, steht auf der Einstellungsseite) als `WP_BRIDGE_SITE` eintragen: Der Client prüft dann vor jeder
+   Anfrage, ob er mit der richtigen Website verbunden ist, und bricht sonst ab, bevor etwas gesendet wird.
+
+- Ohne Schlüssel (oder mit falschem) antworten alle Bridge-Routen mit `403 bw_bridge_key` und nennen Website und Kennung. Ausgenommen sind `status` (zeigt dann nur Name, Adresse, Kennung) und `auth-check`.
+- `wp_bridge.py status` zeigt: `Verbunden mit: <Name> (<Adresse>) · Kennung … · Schlüssel ok`.
+- Standardmäßig gilt die Prüfung nur für die Bridge-Routen. Mit „Schlüssel für alle REST-Anfragen“ wird sie auf jede REST-Anfrage ausgedehnt, die per Anwendungspasswort kommt.
+- „Neuen Schlüssel erzeugen“ macht den alten ungültig (die Kennung bleibt). „Schlüssel entfernen“ schaltet die Prüfung wieder aus. Ist kein Schlüssel eingerichtet, ändert sich nichts.
+- Die Einstellungen sind nicht über die REST-API änderbar.
 
 ## Plugins installieren und aktualisieren (optional)
 

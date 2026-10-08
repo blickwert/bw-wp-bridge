@@ -8,6 +8,8 @@ Umgebungsvariablen:
   WP_APP_PASSWORD   Anwendungspasswort (Profil › Anwendungspasswörter)
   WP_BASIC_AUTH     optional, "user:passwort" falls der Server per .htpasswd geschützt ist
   WP_TIMEOUT        optional, Sekunden pro Anfrage (Standard 120; auch --timeout)
+  WP_BRIDGE_KEY     optional, Verbindungsschlüssel (Einstellungen › BW WP Bridge › Verbindungsschlüssel); wird bei jeder Anfrage mitgesendet
+  WP_BRIDGE_SITE    optional, Kennung der Website (8 Zeichen, steht neben dem Schlüssel); der Client bricht ab, wenn die Website eine andere Kennung hat
 
 Beispiele:
   wp_bridge.py status
@@ -75,6 +77,9 @@ class Client:
         # das Anwendungspasswort geht dann als X-WP-Authorization (wertet das Bridge-Plugin aus).
         self.server_auth = os.environ.get("WP_BASIC_AUTH")
         self.timeout = int(os.environ.get("WP_TIMEOUT") or 120)
+        self.key = os.environ.get("WP_BRIDGE_KEY")
+        self.expect_site = os.environ.get("WP_BRIDGE_SITE")
+        self._site_checked = False
 
     def url(self, path, query=None):
         path = path.lstrip("/")
@@ -83,10 +88,24 @@ class Client:
             u += "&" + urllib.parse.urlencode(query, doseq=True)
         return u
 
-    def request(self, method, path, body=None, query=None):
+    def check_site(self):
+        """Bricht ab, wenn die Website nicht die erwartete Kennung (WP_BRIDGE_SITE) hat. Einmal pro Aufruf."""
+        if self._site_checked or not self.expect_site:
+            return
+        self._site_checked = True
+        info = self.request("GET", "bw-bridge/v1/status", check=False)
+        got = ((info.get("site") or {}).get("id")) or "(keine)"
+        if got != self.expect_site:
+            sys.exit("Falsche Website: erwartet Kennung %s, verbunden mit %s (%s). Es wurde nichts gesendet oder geändert." % (self.expect_site, (info.get("site") or {}).get("url", self.base), got))
+
+    def request(self, method, path, body=None, query=None, check=True):
+        if check and not path.lstrip("/").startswith("bw-bridge/v1/status"):
+            self.check_site()
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(self.url(path, query), data=data, method=method)
         req.add_header("Accept", "application/json")
+        if self.key:
+            req.add_header("X-BW-Bridge-Key", self.key)
         if data is not None:
             req.add_header("Content-Type", "application/json")
         if self.server_auth:
@@ -389,7 +408,12 @@ def main():
         c.timeout = a.timeout
 
     if a.cmd == "status":
-        out(c.request("GET", "bw-bridge/v1/status"))
+        r = c.request("GET", "bw-bridge/v1/status")
+        site, key = r.get("site") or {}, r.get("key") or {}
+        if site:
+            note = "kein Schlüssel eingerichtet" if not key.get("required") else ("Schlüssel ok" if key.get("valid") else "SCHLÜSSEL FEHLT ODER FALSCH (WP_BRIDGE_KEY)")
+            print("Verbunden mit: %s (%s) · Kennung %s · %s" % (site.get("name"), site.get("url"), site.get("id") or "-", note), file=sys.stderr)
+        out(r)
     elif a.cmd == "auth-check":
         out(c.request("GET", "bw-bridge/v1/auth-check"))
     elif a.cmd in ("get", "post", "put", "delete"):

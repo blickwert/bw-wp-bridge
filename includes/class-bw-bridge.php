@@ -14,6 +14,7 @@ final class BW_WP_Bridge {
 		add_action( 'rest_api_init', [ __CLASS__, 'register_routes' ] );
 		BW_Bridge_Content_Types::init();
 		BW_Bridge_Settings::init();
+		BW_Bridge_Key::init();
 	}
 
 	public static function register_routes() {
@@ -46,11 +47,16 @@ final class BW_WP_Bridge {
 		return current_user_can( 'manage_options' );
 	}
 
-	public static function status() {
+	public static function status( $request = null ) {
+		$info = BW_Bridge_Key::summary( $request );
+		// Ohne passenden Schlüssel nur Angaben zur Identifikation der Website (damit die Verwechslung erkennbar ist).
+		if ( ! $info['key']['valid'] ) {
+			return rest_ensure_response( [ 'bridge' => self::VERSION, 'site' => $info['site'], 'key' => $info['key'] ] );
+		}
 		$el = BW_Bridge_Elementor::elementor();
-		return rest_ensure_response( [
+		return rest_ensure_response( $info + [
 			'bridge'        => self::VERSION,
-			'features'      => [ 'elementor-texts', 'elementor-backups', 'elementor-dry-run', 'search', 'translations', 'translation-link', 'theme-builder-refresh', 'render', 'meta', 'batch', 'plugins' ],
+			'features'      => [ 'elementor-texts', 'elementor-backups', 'elementor-dry-run', 'search', 'translations', 'translation-link', 'theme-builder-refresh', 'render', 'meta', 'batch', 'plugins', 'connection-key' ],
 			'wordpress'     => get_bloginfo( 'version' ),
 			'elementor'     => defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : null,
 			'elementor_pro' => defined( 'ELEMENTOR_PRO_VERSION' ) ? ELEMENTOR_PRO_VERSION : null,

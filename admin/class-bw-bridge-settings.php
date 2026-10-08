@@ -85,7 +85,7 @@ final class BW_Bridge_Settings {
 		$bool = static function ( $v ) {
 			return $v ? 1 : 0;
 		};
-		foreach ( [ self::OPT_READ, self::OPT_WRITE, self::OPT_PARENT, self::OPT_PLUGINS ] as $opt ) {
+		foreach ( [ self::OPT_READ, self::OPT_WRITE, self::OPT_PARENT, self::OPT_PLUGINS, BW_Bridge_Key::OPT_ALL ] as $opt ) {
 			register_setting( self::GROUP, $opt, [ 'type' => 'boolean', 'sanitize_callback' => $bool, 'default' => 0, 'show_in_rest' => false ] );
 		}
 	}
@@ -111,6 +111,7 @@ final class BW_Bridge_Settings {
 		if ( self::config_blocks_writing() ) {
 			echo '<div class="notice notice-warning inline"><p>Die wp-config.php sperrt Dateiänderungen (<code>DISALLOW_FILE_EDIT</code> / <code>DISALLOW_FILE_MODS</code>). Schreiben ist deshalb nicht möglich, Lesen schon.</p></div>';
 		}
+		BW_Bridge_Key::render_section();
 		echo '<form method="post" action="options.php">';
 		settings_fields( self::GROUP );
 		echo '<table class="form-table" role="presentation"><tbody>';
@@ -120,6 +121,7 @@ final class BW_Bridge_Settings {
 			self::checkbox_row( self::OPT_PARENT, 'Parent-Theme einbeziehen', 'Zusätzlich das Parent-Theme „' . esc_html( $parent->get( 'Name' ) ) . '“ (Ordner <code>' . esc_html( $parent->get_stylesheet() ) . '</code>) freigeben.' );
 		}
 		self::checkbox_row( self::OPT_PLUGINS, 'Plugins installieren und aktualisieren', 'Plugins aus dem wordpress.org-Verzeichnis, aus einer https-ZIP-Adresse oder aus einem hochgeladenen ZIP installieren (auf Wunsch aktivieren) und Plugins aktualisieren. Braucht zusätzlich die Rechte <code>install_plugins</code> / <code>update_plugins</code>. Auflisten der Plugins ist immer möglich.' );
+		self::checkbox_row( BW_Bridge_Key::OPT_ALL, 'Schlüssel für alle REST-Anfragen', 'Den Verbindungsschlüssel nicht nur für die Bridge-Routen verlangen, sondern für jede REST-Anfrage, die per Anwendungspasswort kommt (z. B. auch andere Programme mit einem Anwendungspasswort). Wirkt nur, wenn oben ein Schlüssel eingerichtet ist.' );
 		echo '</tbody></table>';
 		echo '<p class="description">Aktives Theme: <strong>' . esc_html( $child->get( 'Name' ) ) . '</strong> (Ordner <code>' . esc_html( $child->get_stylesheet() ) . '</code>)</p>';
 		submit_button();
