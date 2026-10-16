@@ -27,6 +27,9 @@ function wpautop( $s ) { return $s ? '<p>' . $s . '</p>' : ''; }
 function sanitize_text_field( $s ) { return trim( strip_tags( (string) $s ) ); }
 function sanitize_email( $s ) { return preg_match( '/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i', trim( $s ) ) ? trim( $s ) : ''; }
 function is_email( $s ) { return (bool) preg_match( '/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i', $s ); }
+function esc_url( $s ) { return preg_match( '#^https?://#', $s ) ? htmlspecialchars( $s ) : ''; } function wp_kses_post( $s ) { return preg_replace( '#<script.*?</script>#is', '', $s ); }
+function date_i18n( $f, $t ) { return date( $f, $t ); } function sanitize_textarea_field( $s ) { return trim( strip_tags( (string) $s ) ); }
+function get_transient( $k ) { return $GLOBALS['tr'][ $k ] ?? false; } function set_transient( $k, $v, $e = 0 ) { $GLOBALS['tr'][ $k ] = $v; return true; }
 function wp_json_encode( $v ) { return json_encode( $v ); }
 function wp_timezone() { return new DateTimeZone( 'Europe/Vienna' ); }
 function wp_salt( $s = '' ) { return 'salz'; }
@@ -161,6 +164,41 @@ update_option( 'bwb_consent_required', 0 );
 check( 'Einwilligungsprüfung abschaltbar', $A::fire( 'b@example.test', 'e', [], false, 't' )['result'] === 'sent' );
 define( 'BW_BREVO_LIVE_DISABLED', true );
 check( 'wp-config-Sperre schlägt die Freigabe', ! BW_Brevo_Settings::live() && ! empty( $A::fire( 'b@example.test', 'e', [], true, 't' )['dry_run'] ) );
+
+
+/* 7. Layout aus Brevo (Vorlage/Kampagne) */
+$T = 'BW_Brevo_Templates';
+check( 'Referenzen: t12 / template:12 / 12 / c55 / campaign:55', $T::normalize_ref( 't12' ) === 't12' && $T::normalize_ref( 'template:12' ) === 't12' && $T::normalize_ref( '12' ) === 't12' && $T::normalize_ref( 'C55' ) === 'c55' && $T::normalize_ref( 'campaign:55' ) === 'c55' && $T::normalize_ref( 'x; DROP' ) === '' );
+$lay = '<html><h1>[[bw_title]]</h1><a href="[[bw_var:cta_url]]">Los</a>[[ bw_content ]]<p>[[bw_date]] · [[bw_var:ort]]</p><a href="{{ unsubscribe }}">ab</a></html>';
+$vars = [ 'content' => '<p>Inhalt</p>', 'title' => 'T &amp; Co', 'date' => '03.11.2026', 'var:cta_url' => 'https://x.test/a?b=1&amp;c=2', 'var:ort' => 'Graz' ];
+$r = $T::fill( $lay, $vars );
+check( 'fill: alle Platzhalter ersetzt, Brevos {{ }} bleibt', $r['error'] === null && strpos( $r['html'], '[[' ) === false && strpos( $r['html'], '<p>Inhalt</p>' ) !== false && strpos( $r['html'], '{{ unsubscribe }}' ) !== false && strpos( $r['html'], 'Graz' ) !== false );
+check( 'fill: ohne [[bw_content]] → Fehler', strpos( (string) $T::fill( '<p>nix</p>', $vars )['error'], 'bw_content' ) !== false );
+$e = $T::fill( $lay, array_diff_key( $vars, [ 'var:ort' => 1 ] ) )['error'];
+check( 'fill: Platzhalter ohne Wert → Fehler nennt ihn', strpos( (string) $e, '[[bw_var:ort]]' ) !== false );
+check( 'fill: unbekannter Platzhalter → Fehler', strpos( (string) $T::fill( '[[bw_content]][[bw_unsinn]]', $vars )['error'], '[[bw_unsinn]]' ) !== false );
+check( 'Zeilen name=wert werden gelesen', $T::parse_vars( "ort = Graz\nbutton_url=https://x.test/?a=1\nkaputt\n" ) === [ 'ort' => 'Graz', 'button_url' => 'https://x.test/?a=1' ] );
+$F = [ 'title' => 'A<b>', 'subject' => 'S', 'preheader' => '', 'scheduled_at' => '2026-11-03 09:00', 'vars' => "cta_url=javascript:alert(1)\nnotiz_html=<b>fett</b><script>x</script>\nort=<i>Graz</i>" ];
+$v = $T::vars( 7, $F, '<p>B</p>' );
+check( 'vars: Text maskiert, Datum, javascript:-Adresse leer, HTML ohne script', $v['title'] === 'A&lt;b&gt;' && $v['date'] === '03.11.2026' && $v['var:cta_url'] === '' && $v['var:notiz_html'] === '<b>fett</b>' && $v['var:ort'] === '&lt;i&gt;Graz&lt;/i&gt;' );
+
+update_option( 'bwb_live', 0 ); $GLOBALS['tr'] = [];
+$GLOBALS['calls'] = [];
+api( static function ( $m, $u ) { return strpos( $u, '/smtp/templates/12' ) ? ok( [ 'htmlContent' => '<html>[[bw_content]]<a href="{{ unsubscribe }}">x</a></html>' ] ) : ( strpos( $u, '/emailCampaigns/55' ) ? ok( [ 'htmlContent' => '' ] ) : ok( [], 204 ) ); } );
+update_post_meta( 7, 'bwb_base', 't12' );
+$h = BW_Brevo_Campaigns::build_html( 7 );
+check( 'build_html mit Basis t12: Layout aus Brevo + Inhalt aus WordPress', is_string( $h ) && $h === '<html><p>Hallo</p><a href="{{ unsubscribe }}">x</a></html>' );
+$n = count( $GLOBALS['calls'] ); BW_Brevo_Campaigns::build_html( 7 );
+check( 'Layout wird kurz zwischengespeichert (1 Abruf)', count( $GLOBALS['calls'] ) === $n );
+BW_Brevo_Campaigns::build_html( 7, null, true );
+check( 'fresh holt neu', count( $GLOBALS['calls'] ) === $n + 1 );
+update_post_meta( 7, 'bwb_base', 'c55' );
+check( 'Basis ohne HTML-Inhalt → verständlicher Fehler', code( BW_Brevo_Campaigns::build_html( 7 ) ) === 'bwb_base' );
+update_post_meta( 7, 'bwb_base', 't12' ); update_option( 'bwb_default_lists', '3' );
+$pv = BW_Brevo_Campaigns::preview( 7 );
+check( 'preview liefert HTML und Layout, ohne Übertragung', $pv['layout'] === 't12' && strpos( $pv['html'], 'Hallo' ) !== false );
+check( 'in_sync mit Layout berechenbar', BW_Brevo_Campaigns::in_sync( 7 ) === false );
+update_post_meta( 7, 'bwb_base', '' );
 
 echo "\n$pass bestanden, $fail fehlgeschlagen\n";
 exit( $fail ? 1 : 0 );

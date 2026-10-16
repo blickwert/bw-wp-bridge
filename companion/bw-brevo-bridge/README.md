@@ -13,6 +13,21 @@ Es nutzt den Namespace `bw-bridge/v1/brevo/…` – damit gelten Anmeldung (Anwe
 | **Zustellbarkeit** | Webhook-Empfänger für Zustellung, Bounces, Beschwerden, Abmeldungen, Klicks (gespeichert werden nur Hash der Adresse + Domain). Täglicher Abgleich der Brevo-Kampagnenstatistik. Raten (Zustell-, Bounce-, Beschwerde-, Klick-, Abmelderate), Warnungen bei Schwellwerten (Beschwerden ≥ 0,1 / 0,3 %, Hard Bounces ≥ 2 %, Zustellrate < 95 %), Probleme je Postfachanbieter. Seite *Newsletter › Zustellbarkeit*. |
 | **Automationen** | Workflows baut man in Brevo (die API legt keine an). Gesteuert wird, *wann* sie starten: WordPress-Auslöser (Registrierung, Login, WooCommerce-Bestellung; erweiterbar per Filter `bwb_triggers`) senden ein Brevo-**Ereignis**; zusätzlich `POST brevo/events` für einzelne Ereignisse. In Brevo: Automation › Auslöser „Ereignis“ mit demselben Namen. |
 
+## Layout getrennt vom Inhalt
+
+Das Design bleibt in Brevo, WordPress liefert nur den Inhalt. Im Brevo-Layout (eine **Vorlage** oder eine **bestehende Kampagne**) stehen Platzhalter in doppelten eckigen Klammern:
+
+| Platzhalter | Wird ersetzt durch |
+|---|---|
+| `[[bw_content]]` | Inhalt des Newsletter-Beitrags (**Pflicht**) |
+| `[[bw_title]]`, `[[bw_subject]]`, `[[bw_preheader]]` | Titel, Betreff, Vorschautext |
+| `[[bw_date]]` | Datum der „Versandzeit“ (sonst heute) im Datumsformat der Website |
+| `[[bw_var:name]]` | Wert aus dem Feld „Weitere Platzhalter“ (Zeilen `name=wert`); `…_url` wird als Adresse bereinigt, `…_html` darf HTML enthalten, sonst Text |
+
+Im Newsletter-Beitrag (Tab *Inhalt*) wählst du das **Layout**; ein Standard-Layout gilt für alle (*Newsletter › Brevo*). Beim Übertragen holt das Plugin das Layout aus Brevo, ersetzt die Platzhalter und legt daraus eine **neue** Kampagne an. Fehlt `[[bw_content]]` oder hat ein Platzhalter keinen Wert, wird nichts übertragen. Mit *Vorschau* (Button bzw. `POST brevo/campaigns/<id>/preview`) siehst du das fertige Mail-HTML, ohne etwas zu senden. Brevos eigene `{{ … }}`-Platzhalter und der Abmeldelink des Layouts bleiben unberührt. Ohne gewähltes Layout gilt das einfache eingebaute Layout.
+
+Hinweis: Ob Brevo das HTML einer Vorlage bzw. Kampagne über die API ausliefert, hängt vom Editor-Typ ab (HTML-/Rich-Text-Vorlagen sind unkritisch). Eine **bestehende Kampagne als Layout** ist der verlässlichere Weg; beides mit dem Testkonto prüfen.
+
 ## Sicherheit (wichtig, weil es echte Empfänger betrifft)
 
 - **Live-Aktionen sind standardmäßig gesperrt** (nur im Backend freizugeben: *Newsletter › Brevo*, nicht über die API). Ohne Freigabe: Entwürfe und Testmails *an die Testempfänger* funktionieren, *send*/*schedule*/Ereignisse sind Probelauf und erscheinen nur in `brevo/outbox`. Hart sperren: `define( 'BW_BREVO_LIVE_DISABLED', true );`
@@ -36,6 +51,8 @@ Es nutzt den Namespace `bw-bridge/v1/brevo/…` – damit gelten Anmeldung (Anwe
 ```bash
 wp_bridge.py get  bw-bridge/v1/brevo/status                  # API erreichbar? Live gesperrt? Webhook-Adresse
 wp_bridge.py get  bw-bridge/v1/brevo/lists                   # Listen-IDs
+wp_bridge.py get  bw-bridge/v1/brevo/bases                   # Layouts: Vorlagen (t12) und Kampagnen (c55)
+wp_bridge.py post bw-bridge/v1/brevo/campaigns/42/preview    # fertiges HTML ansehen, ohne Übertragung
 wp_bridge.py post wp/v2/bw_newsletter --json '{"title":"Herbst","status":"draft","content":"<h2>…</h2>","meta":{"bwb_subject":"…","bwb_preheader":"…","bwb_lists":"3"}}'
 wp_bridge.py post bw-bridge/v1/brevo/campaigns/42/push       # Entwurf in Brevo
 wp_bridge.py post bw-bridge/v1/brevo/campaigns/42/test       # Testmail an die Testempfänger
@@ -51,6 +68,6 @@ wp_bridge.py get  bw-bridge/v1/brevo/rules                   # Auslöser; brevo/
 ## Grenzen
 
 - Öffnungsraten sind durch Apple Mail Privacy Protection zu hoch; Klicks und Zustellrate sind verlässlicher.
-- Das Mail-Layout ist ein schlichtes Standard-HTML; eigenes Layout über den Filter `bwb_email_html`. Elementor-Layouts sind für Mails nicht geeignet.
+- Ohne gewähltes Brevo-Layout gilt ein schlichtes Standard-HTML (Filter `bwb_email_html` zum Anpassen). Elementor-Layouts sind für Mails nicht geeignet.
 - Platzhalter für den Abmeldelink: `{{ unsubscribe }}` – gegen die aktuelle Brevo-Doku prüfen, falls das Konto andere Tags verlangt.
 - Workflows selbst (Schritte, Bedingungen, Texte) lassen sich per API nicht anlegen oder ändern.

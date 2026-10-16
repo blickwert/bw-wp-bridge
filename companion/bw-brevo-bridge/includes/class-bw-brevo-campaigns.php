@@ -22,6 +22,8 @@ final class BW_Brevo_Campaigns {
 		'lists'        => 'Listen-IDs',
 		'scheduled_at' => 'Versandzeit',
 		'tag'          => 'Tag',
+		'base'         => 'Layout (Brevo-Vorlage/-Kampagne)',
+		'vars'         => 'Weitere Platzhalter',
 	];
 
 	public static function init() {
@@ -60,6 +62,10 @@ final class BW_Brevo_Campaigns {
 				return implode( ',', BW_Brevo_Settings::ids( $v ) );
 			case 'preheader':
 				return mb_substr( sanitize_text_field( $v ), 0, 150 );
+			case 'base':
+				return BW_Brevo_Templates::normalize_ref( $v );
+			case 'vars':
+				return mb_substr( sanitize_textarea_field( $v ), 0, 4000 );
 			default:
 				return sanitize_text_field( $v );
 		}
@@ -81,14 +87,29 @@ final class BW_Brevo_Campaigns {
 		$f['sender_name']  = '' !== $f['sender_name'] ? $f['sender_name'] : (string) get_option( 'bwb_sender_name', '' );
 		$f['sender_email'] = '' !== $f['sender_email'] ? $f['sender_email'] : (string) get_option( 'bwb_sender_email', '' );
 		$f['list_ids']     = BW_Brevo_Settings::ids( $f['lists'] ) ?: BW_Brevo_Settings::default_lists();
+		$f['base']         = '' !== $f['base'] ? $f['base'] : BW_Brevo_Templates::normalize_ref( get_option( 'bwb_default_base', '' ) );
 		return $f;
 	}
 
-	/** Mail-HTML aus dem Beitragsinhalt. Filter bwb_email_html erlaubt ein eigenes Layout. */
-	public static function build_html( $post_id, $f = null ) {
+	/**
+	 * Mail-HTML: mit Basis-Layout aus Brevo (Platzhalter ersetzen) oder mit dem eingebauten Standardlayout.
+	 * Filter bwb_email_html erlaubt Anpassungen. Gibt String oder WP_Error zurück.
+	 */
+	public static function build_html( $post_id, $f = null, $fresh = false ) {
 		$post   = get_post( $post_id );
 		$f      = $f ?: self::fields( $post_id );
 		$body   = apply_filters( 'the_content', $post->post_content );
+		if ( '' !== $f['base'] ) {
+			$base = BW_Brevo_Templates::base_html( $f['base'], $fresh );
+			if ( is_wp_error( $base ) ) {
+				return $base;
+			}
+			$r = BW_Brevo_Templates::fill( $base, BW_Brevo_Templates::vars( $post_id, $f, $body ) );
+			if ( $r['error'] ) {
+				return new WP_Error( 'bwb_template', $r['error'], [ 'status' => 422 ] );
+			}
+			return (string) apply_filters( 'bwb_email_html', $r['html'], $post_id, $f );
+		}
 		$pre    = '' !== $f['preheader'] ? '<div style="display:none;max-height:0;overflow:hidden;opacity:0">' . esc_html( $f['preheader'] ) . '</div>' : '';
 		$footer = wpautop( (string) get_option( 'bwb_footer', '' ) );
 		$html   = '<!doctype html><html lang="' . esc_attr( get_bloginfo( 'language' ) ) . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . esc_html( $f['subject'] ) . '</title></head>'
@@ -163,7 +184,10 @@ final class BW_Brevo_Campaigns {
 			return new WP_Error( 'bwb_not_found', 'Kein Newsletter mit dieser ID.', [ 'status' => 404 ] );
 		}
 		$f    = self::fields( $post_id );
-		$html = self::build_html( $post_id, $f );
+		$html = self::build_html( $post_id, $f, true );
+		if ( is_wp_error( $html ) ) {
+			return $html;
+		}
 		$err  = self::validate( $f, $html );
 		if ( $err ) {
 			return new WP_Error( 'bwb_invalid', $err, [ 'status' => 422 ] );
@@ -313,6 +337,9 @@ final class BW_Brevo_Campaigns {
 	public static function rest_action( $request ) {
 		$id = (int) $request['id'];
 		switch ( $request['action'] ) {
+			case 'preview':
+				$r = self::preview( $id );
+				break;
 			case 'push':
 				$r = self::push( $id );
 				break;
@@ -339,12 +366,29 @@ final class BW_Brevo_Campaigns {
 			$out[] = [
 				'id' => $p->ID, 'title' => $p->post_title, 'subject' => self::fields( $p->ID )['subject'],
 				'campaign_id' => $cid ?: null, 'brevo_status' => get_post_meta( $p->ID, 'bwb_status', true ) ?: null,
-				'in_sync' => $cid ? get_post_meta( $p->ID, 'bwb_pushed_hash', true ) === self::payload_hash( self::build_payload( self::fields( $p->ID ), self::build_html( $p->ID ) ) ) : false,
+				'layout' => self::fields( $p->ID )['base'] ?: 'standard',
+				'in_sync' => $cid ? self::in_sync( $p->ID ) : false,
 				'tested' => (bool) get_post_meta( $p->ID, 'bwb_tested_at', true ),
 				'stats' => is_array( $stats ) ? $stats : null,
 			];
 		}
 		return rest_ensure_response( $out );
+	}
+
+	/** Stimmt der in Brevo gespeicherte Stand mit dem aktuellen WordPress-Stand überein? null = nicht prüfbar. */
+	public static function in_sync( $post_id ) {
+		$f    = self::fields( $post_id );
+		$html = self::build_html( $post_id, $f );
+		return is_wp_error( $html ) ? null : get_post_meta( $post_id, 'bwb_pushed_hash', true ) === self::payload_hash( self::build_payload( $f, $html ) );
+	}
+
+	/** Fertiges Mail-HTML ansehen, ohne etwas zu übertragen. */
+	public static function preview( $post_id ) {
+		$prep = self::prepare( $post_id );
+		if ( is_wp_error( $prep ) ) {
+			return $prep;
+		}
+		return [ 'ok' => true, 'subject' => $prep[0]['subject'], 'layout' => $prep[0]['base'] ?: 'standard', 'length' => strlen( $prep[1] ), 'html' => $prep[1] ];
 	}
 
 	public static function rest_lists() {
@@ -383,6 +427,11 @@ final class BW_Brevo_Campaigns {
 		echo '<div data-bwb-pane="inhalt"><table class="form-table"><tbody>';
 		self::input_row( 'subject', 'Betreff', $f['subject'], 'Standard: Titel. Der Text des Newsletters kommt aus dem Editor oben.' );
 		self::input_row( 'preheader', 'Vorschautext', $f['preheader'], 'Wird im Posteingang neben dem Betreff angezeigt (max. 150 Zeichen).' );
+		self::base_row( $f['base'] );
+		printf(
+			'<tr><th scope="row"><label for="bwb_vars">Weitere Platzhalter</label></th><td><textarea id="bwb_vars" name="bwb_vars" rows="3" class="large-text code" placeholder="button_url=https://…&#10;intro=Kurztext">%s</textarea><p class="description">Eine Zeile je Wert: <code>name=wert</code> → im Layout <code>[[bw_var:name]]</code> (Endung <code>_url</code> = Adresse, <code>_html</code> = HTML erlaubt).</p></td></tr>',
+			esc_textarea( $f['vars'] )
+		);
 		echo '</tbody></table></div>';
 
 		echo '<div data-bwb-pane="versand" hidden><table class="form-table"><tbody>';
@@ -401,10 +450,10 @@ final class BW_Brevo_Campaigns {
 			BW_Brevo_Admin::stats_table( $stats );
 		}
 		if ( $post->ID && 'auto-draft' !== $post->post_status ) {
-			foreach ( [ 'push' => 'Als Entwurf nach Brevo', 'test' => 'Testmail senden', 'sync' => 'Statistik abgleichen', 'send' => 'Jetzt senden', 'schedule' => 'Planen' ] as $a => $l ) {
+			foreach ( [ 'preview' => 'Vorschau', 'push' => 'Als Entwurf nach Brevo', 'test' => 'Testmail senden', 'sync' => 'Statistik abgleichen', 'send' => 'Jetzt senden', 'schedule' => 'Planen' ] as $a => $l ) {
 				$url = wp_nonce_url( add_query_arg( [ 'action' => 'bwb_campaign', 'do' => $a, 'post' => $post->ID ], admin_url( 'admin-post.php' ) ), 'bwb_campaign_' . $post->ID );
 				$js  = in_array( $a, [ 'send', 'schedule' ], true ) ? ' onclick="return confirm(\'Wirklich ' . esc_js( $l ) . '? Das betrifft echte Empfänger.\')"' : '';
-				printf( '<a class="button%s" href="%s"%s style="margin-right:6px">%s</a>', in_array( $a, [ 'send', 'schedule' ], true ) ? '' : ' button-secondary', esc_url( $url ), $js, esc_html( $l ) ); // phpcs:ignore WordPress.Security.EscapeOutput -- $js ist fester Text
+				printf( '<a class="button%s" href="%s"%s style="margin-right:6px"' . ( 'preview' === $a ? ' target="_blank" rel="noopener"' : '' ) . '>%s</a>', in_array( $a, [ 'send', 'schedule' ], true ) ? '' : ' button-secondary', esc_url( $url ), $js, esc_html( $l ) ); // phpcs:ignore WordPress.Security.EscapeOutput -- $js ist fester Text
 			}
 			echo '<p class="description">Erst speichern, dann übertragen – es wird der gespeicherte Stand verwendet.</p>';
 		}
@@ -423,6 +472,24 @@ final class BW_Brevo_Campaigns {
 		})();
 		</script>
 		<?php
+	}
+
+	private static function base_row( $current ) {
+		$opts = BW_Brevo_API::key() ? BW_Brevo_Templates::options() : new WP_Error( 'x', 'kein API-Schlüssel' );
+		echo '<tr><th scope="row"><label for="bwb_base">Layout</label></th><td>';
+		if ( is_wp_error( $opts ) ) {
+			printf( '<input type="text" id="bwb_base" name="bwb_base" value="%s" class="regular-text" placeholder="t12 (Vorlage) oder c55 (Kampagne)"><p class="description">Liste aus Brevo nicht abrufbar (%s). ID eintragen: <code>t12</code> = Vorlage 12, <code>c55</code> = Kampagne 55.</p>', esc_attr( $current ), esc_html( $opts->get_error_message() ) );
+		} else {
+			if ( $current && ! isset( $opts[ $current ] ) ) {
+				$opts[ $current ] = $current . ' (nicht in der Liste)';
+			}
+			echo '<select id="bwb_base" name="bwb_base"><option value="">Standardlayout dieses Plugins</option>';
+			foreach ( $opts as $k => $label ) {
+				printf( '<option value="%s"%s>%s</option>', esc_attr( $k ), selected( $current, $k, false ), esc_html( $label ) );
+			}
+			echo '</select>';
+		}
+		echo '<p class="description">Das Layout bleibt in Brevo. Dort steht <code>[[bw_content]]</code> an der Stelle des Inhalts (weitere: <code>[[bw_title]]</code>, <code>[[bw_subject]]</code>, <code>[[bw_preheader]]</code>, <code>[[bw_date]]</code>). Beim Übertragen wird eine neue Kampagne aus Layout + Inhalt erzeugt.</p></td></tr>';
 	}
 
 	private static function input_row( $name, $label, $value, $help = '' ) {
@@ -459,6 +526,16 @@ final class BW_Brevo_Campaigns {
 		}
 		check_admin_referer( 'bwb_campaign_' . $id );
 		switch ( $do ) {
+			case 'preview':
+				$r = self::preview( $id );
+				if ( ! is_wp_error( $r ) ) {
+					header( 'Content-Type: text/html; charset=utf-8' );
+					header( "Content-Security-Policy: sandbox; default-src 'none'; img-src * data:; style-src 'unsafe-inline'; font-src *" );
+					header( 'X-Content-Type-Options: nosniff' );
+					echo $r['html']; // phpcs:ignore WordPress.Security.EscapeOutput -- bewusst Roh-HTML, durch CSP sandbox ohne Skripte
+					exit;
+				}
+				break;
 			case 'push':
 				$r = self::push( $id );
 				break;

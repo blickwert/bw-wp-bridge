@@ -31,6 +31,7 @@ spl_autoload_register(
 			'BW_Brevo_API'         => 'includes/class-bw-brevo-api.php',
 			'BW_Brevo_Settings'    => 'admin/class-bw-brevo-settings.php',
 			'BW_Brevo_Campaigns'   => 'includes/class-bw-brevo-campaigns.php',
+			'BW_Brevo_Templates'   => 'includes/class-bw-brevo-templates.php',
 			'BW_Brevo_Stats'       => 'includes/class-bw-brevo-stats.php',
 			'BW_Brevo_Webhook'     => 'includes/class-bw-brevo-webhook.php',
 			'BW_Brevo_Automations' => 'includes/class-bw-brevo-automations.php',

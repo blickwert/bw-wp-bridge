@@ -55,6 +55,7 @@ final class BW_Brevo_Settings {
 		register_setting( self::GROUP, 'bwb_sender_email', [ 'type' => 'string', 'sanitize_callback' => 'sanitize_email', 'show_in_rest' => false ] );
 		register_setting( self::GROUP, 'bwb_default_lists', [ 'type' => 'string', 'sanitize_callback' => static function ( $v ) { return implode( ',', self::ids( $v ) ); }, 'show_in_rest' => false ] );
 		register_setting( self::GROUP, 'bwb_test_emails', [ 'type' => 'string', 'sanitize_callback' => static function ( $v ) { return implode( ',', self::emails( $v ) ); }, 'show_in_rest' => false ] );
+		register_setting( self::GROUP, 'bwb_default_base', [ 'type' => 'string', 'sanitize_callback' => [ 'BW_Brevo_Templates', 'normalize_ref' ], 'show_in_rest' => false ] );
 		register_setting( self::GROUP, 'bwb_footer', [ 'type' => 'string', 'sanitize_callback' => 'wp_kses_post', 'show_in_rest' => false ] );
 		register_setting( self::GROUP, 'bwb_live', [ 'type' => 'boolean', 'sanitize_callback' => $bool, 'default' => 0, 'show_in_rest' => false ] );
 		register_setting( self::GROUP, 'bwb_consent_required', [ 'type' => 'boolean', 'sanitize_callback' => $bool, 'default' => 1, 'show_in_rest' => false ] );
@@ -93,6 +94,7 @@ final class BW_Brevo_Settings {
 		self::text_row( 'bwb_sender_name', 'Absendername' );
 		self::text_row( 'bwb_sender_email', 'Absender-E-Mail', 'In Brevo als Absender verifiziert (SPF/DKIM/DMARC der Domain eingerichtet – sonst leidet die Zustellbarkeit).' );
 		self::text_row( 'bwb_default_lists', 'Standard-Listen (IDs)', 'Kommagetrennt, z. B. <code>3,7</code>. Gilt, wenn ein Newsletter keine eigenen Listen hat.' );
+		self::text_row( 'bwb_default_base', 'Standard-Layout', 'Brevo-Vorlage <code>t12</code> oder -Kampagne <code>c55</code> als Layout für alle Newsletter (leer = eingebautes Standardlayout). Pro Newsletter überschreibbar.' );
 		self::text_row( 'bwb_test_emails', 'Testempfänger', 'Kommagetrennt. Testmails gehen immer nur an diese Adressen.' );
 		echo '<tr><th scope="row">Fußzeile</th><td><textarea name="bwb_footer" rows="4" class="large-text">' . esc_textarea( get_option( 'bwb_footer', '' ) ) . '</textarea><p class="description">Anbieterangaben/Impressum für das Mail-Ende. Der Abmeldelink wird automatisch ergänzt.</p></td></tr>';
 		self::check_row( 'bwb_consent_required', 'Einwilligung prüfen', 'Automations-Ereignisse nur für Personen senden, bei denen die Einwilligung gespeichert ist (Benutzer-/Bestell-Meta <code>bwb_consent</code> = 1 oder Filter <code>bwb_has_consent</code>). Nur abschalten, wenn die Einwilligung anderweitig belegt ist.' );

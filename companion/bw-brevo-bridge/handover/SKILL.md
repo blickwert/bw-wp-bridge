@@ -30,6 +30,7 @@ wp_bridge.py post bw-bridge/v1/brevo/campaigns/<id>/schedule --json '{"at":"2026
 ```
 
 Meta-Felder (alle optional, Rückfall auf die Einstellungen): `bwb_subject`, `bwb_preheader` (≤ 150 Zeichen), `bwb_sender_name`, `bwb_sender_email`, `bwb_reply_to`, `bwb_lists` (IDs kommagetrennt), `bwb_scheduled_at`, `bwb_tag`.
+Layout: Das Design liegt in Brevo (Vorlage `t<ID>` oder bestehende Kampagne `c<ID>`, siehe `GET brevo/bases`), im Meta-Feld `bwb_base` (Standard in den Einstellungen). Das Layout enthält `[[bw_content]]` (Pflicht), optional `[[bw_title]]`, `[[bw_subject]]`, `[[bw_preheader]]`, `[[bw_date]]` und `[[bw_var:name]]`; Werte für `[[bw_var:…]]` stehen als Zeilen `name=wert` im Meta-Feld `bwb_vars`. Vor `push`/`test` immer `POST brevo/campaigns/<id>/preview` ausführen und prüfen, ob alle Platzhalter gefüllt sind. Fehler `bwb_template` nennt fehlende Platzhalter/Werte; `bwb_base` = Layout nicht abrufbar oder ohne HTML.
 Inhalt: einfaches HTML im Beitragsinhalt (keine Elementor-Layouts). Der Abmeldelink `{{ unsubscribe }}` und die Fußzeile kommen automatisch dazu. Nach jeder Textänderung erneut `test`, sonst blockiert `send` (409 `bwb_untested`).
 
 ## Auswertung / Zustellbarkeit

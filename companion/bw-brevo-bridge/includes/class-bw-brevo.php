@@ -45,8 +45,9 @@ final class BW_Brevo {
 
 		$r( '/status', 'GET', [ __CLASS__, 'status' ] );
 		$r( '/lists', 'GET', [ 'BW_Brevo_Campaigns', 'rest_lists' ] );
+		$r( '/bases', 'GET', [ 'BW_Brevo_Templates', 'rest_bases' ] );
 		$r( '/campaigns', 'GET', [ 'BW_Brevo_Campaigns', 'rest_list' ] );
-		$r( '/campaigns/(?P<id>\d+)/(?P<action>push|test|send|schedule|sync)', 'POST', [ 'BW_Brevo_Campaigns', 'rest_action' ] );
+		$r( '/campaigns/(?P<id>\d+)/(?P<action>preview|push|test|send|schedule|sync)', 'POST', [ 'BW_Brevo_Campaigns', 'rest_action' ] );
 		$r( '/stats', 'GET', [ 'BW_Brevo_Stats', 'rest_stats' ] );
 		$r( '/stats/sync', 'POST', [ 'BW_Brevo_Stats', 'rest_sync' ] );
 		$r( '/events', 'POST', [ 'BW_Brevo_Automations', 'rest_event' ] );
