@@ -140,6 +140,7 @@ update_option( 'bwb_api_key', 'xkeysib-test' );
 $A = 'BW_Brevo_Automations';
 $s = $A::sanitize_rules( [ 'user_register' => [ 'enabled' => '1', 'event' => 'neu angemeldet!<b>' ], 'boese' => [ 'enabled' => 1 ] ] );
 check( 'Regeln: Name bereinigt, unbekannte Auslöser verworfen', $s['user_register']['event'] === 'neuangemeldetb' && ! isset( $s['boese'] ) && $s['wp_login']['enabled'] === 0 );
+check( 'Standard-Ereignisnamen ohne doppeltes wp_', $A::default_event( 'wp_login' ) === 'wp_login' && $A::default_event( 'user_register' ) === 'wp_user_register' );
 $GLOBALS['calls'] = [];
 $r = $A::fire( 'anna@example.test', 'wp_user_register', [], false, 'test' );
 check( 'ohne Einwilligung: übersprungen, nichts gesendet', $r['result'] === 'skipped_no_consent' && count( $GLOBALS['calls'] ) === 0 );

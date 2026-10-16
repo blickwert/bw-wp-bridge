@@ -30,17 +30,21 @@ final class BW_Brevo_Automations {
 		foreach ( array_keys( self::triggers() ) as $t ) {
 			$out[ $t ] = [
 				'enabled' => ! empty( $saved[ $t ]['enabled'] ),
-				'event'   => ! empty( $saved[ $t ]['event'] ) ? (string) $saved[ $t ]['event'] : 'wp_' . $t,
+				'event'   => ! empty( $saved[ $t ]['event'] ) ? (string) $saved[ $t ]['event'] : self::default_event( $t ),
 			];
 		}
 		return $out;
+	}
+
+	public static function default_event( $trigger ) {
+		return 0 === strpos( $trigger, 'wp_' ) ? $trigger : 'wp_' . $trigger;
 	}
 
 	public static function sanitize_rules( $in ) {
 		$out = [];
 		foreach ( array_keys( self::triggers() ) as $t ) {
 			$ev = isset( $in[ $t ]['event'] ) ? preg_replace( '/[^A-Za-z0-9_\-]/', '', (string) $in[ $t ]['event'] ) : '';
-			$out[ $t ] = [ 'enabled' => ! empty( $in[ $t ]['enabled'] ) ? 1 : 0, 'event' => substr( $ev, 0, 60 ) ?: 'wp_' . $t ];
+			$out[ $t ] = [ 'enabled' => ! empty( $in[ $t ]['enabled'] ) ? 1 : 0, 'event' => substr( $ev, 0, 60 ) ?: self::default_event( $t ) ];
 		}
 		return $out;
 	}

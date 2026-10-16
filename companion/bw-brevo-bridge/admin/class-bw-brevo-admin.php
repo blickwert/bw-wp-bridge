@@ -54,7 +54,7 @@ final class BW_Brevo_Admin {
 		printf( '<tr><td>Öffnungen (verzerrt*)</td><td>%d</td><td>Öffnungsrate*</td><td>%s</td></tr>', (int) $n['uniqueViews'], self::fmt( $r['open_rate'] ) ); // phpcs:ignore WordPress.Security.EscapeOutput
 		printf( '<tr><td>Klicks</td><td>%d</td><td>Klickrate</td><td>%s</td></tr>', (int) $n['uniqueClicks'], self::fmt( $r['click_rate'] ) ); // phpcs:ignore WordPress.Security.EscapeOutput
 		printf( '<tr><td>Abmeldungen</td><td>%d</td><td>Abmelderate</td><td>%s</td></tr>', (int) $n['unsubscriptions'], self::fmt( $r['unsubscribe_rate'] ) ); // phpcs:ignore WordPress.Security.EscapeOutput
-		echo '</tbody></table><p class="description">* Apple Mail Privacy Protection löst Öffnungen automatisch aus. Stand: ' . esc_html( $s['synced_at'] ) . '</p>';
+		echo '</tbody></table><p class="description">* Apple Mail Privacy Protection löst Öffnungen automatisch aus. ' . ( empty( $s['synced_at'] ) || '–' === $s['synced_at'] ? '' : 'Stand: ' . esc_html( $s['synced_at'] ) ) . '</p>';
 		foreach ( $s['warnings'] as $w ) {
 			echo '<div class="notice notice-warning inline"><p>' . esc_html( $w ) . '</p></div>';
 		}
