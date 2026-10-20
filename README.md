@@ -93,7 +93,7 @@ wp_bridge.py batch operationen.json    # {"operations":[{"method":"POST","path":
 Mit dem Verbindungsschlüssel verbindest du **genau eine Website** mit dem Client. Er schützt vor Verwechslungen (eine Umgebung zeigt versehentlich auf eine andere
 Website) und ist ein zweiter Faktor neben dem Anwendungspasswort.
 
-1. Einstellungen › BW WP Bridge › **Verbindungsschlüssel › „Schlüssel und Zugangsdaten erzeugen“**. Das Plugin legt dabei auch ein Anwendungspasswort „BW WP Bridge“ für den angemeldeten Benutzer an (ein früheres gleichen Namens wird ersetzt) und zeigt **einmalig** einen fertigen Block mit `WP_<NAME>_URL`, `_USER`, `_APP_PASSWORD`, `_BRIDGE_KEY` und `_BRIDGE_SITE` zum Kopieren an. In der Datenbank liegt nur ein Hash des Schlüssels.
+1. Einstellungen › BW WP Bridge › **Verbindungsschlüssel › „Schlüssel und Zugangsdaten erzeugen“**. Das Plugin legt dabei den Administrator-Benutzer `claude` (`claude@blickwert.at`) an, falls er fehlt, und erzeugt für ihn das Anwendungspasswort „claude-code“ (ein früheres gleichen Namens wird ersetzt) und zeigt **einmalig** einen fertigen Block mit `WP_<NAME>_URL`, `_USER`, `_APP_PASSWORD`, `_BRIDGE_KEY` und `_BRIDGE_SITE` zum Kopieren an. In der Datenbank liegt nur ein Hash des Schlüssels.
 2. Im Client eintragen: `WP_BRIDGE_KEY=bwk_…` (zusammen mit `WP_URL`, `WP_USER`, `WP_APP_PASSWORD`). Nicht in einen Chat einfügen.
 3. Optional die **Kennung** der Website (8 Zeichen, nicht geheim, steht auf der Einstellungsseite) als `WP_BRIDGE_SITE` eintragen: Der Client prüft dann vor jeder
    Anfrage, ob er mit der richtigen Website verbunden ist, und bricht sonst ab, bevor etwas gesendet wird.
