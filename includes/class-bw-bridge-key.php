@@ -120,9 +120,41 @@ final class BW_Bridge_Key {
 		}
 		check_admin_referer( 'bw_bridge_key' );
 		$key = self::generate();
-		set_transient( 'bw_bridge_key_new_' . get_current_user_id(), $key, 120 );
+		$new = [ 'key' => $key, 'app_password' => self::create_app_password( get_current_user_id() ) ];
+		set_transient( 'bw_bridge_key_new_' . get_current_user_id(), $new, 120 );
 		wp_safe_redirect( admin_url( 'options-general.php?page=' . BW_Bridge_Settings::PAGE ) );
 		exit;
+	}
+
+	/**
+	 * Legt für den Benutzer ein Anwendungspasswort „BW WP Bridge“ an (ein altes gleichen Namens wird ersetzt).
+	 * Gibt das Klartext-Passwort zurück oder '' , wenn Anwendungspasswörter hier nicht verfügbar sind.
+	 */
+	public static function create_app_password( $user_id ) {
+		$user = get_userdata( $user_id );
+		if ( ! $user || ! class_exists( 'WP_Application_Passwords' ) || ! wp_is_application_passwords_available_for_user( $user ) ) {
+			return '';
+		}
+		foreach ( WP_Application_Passwords::get_user_application_passwords( $user_id ) as $item ) {
+			if ( 'BW WP Bridge' === $item['name'] ) {
+				WP_Application_Passwords::delete_application_password( $user_id, $item['uuid'] );
+			}
+		}
+		$created = WP_Application_Passwords::create_new_application_password( $user_id, [ 'name' => 'BW WP Bridge' ] );
+		return is_wp_error( $created ) ? '' : (string) $created[0];
+	}
+
+	/** Zeilen für die Umgebungsvariablen des Clients, Namensteil aus dem Website-Titel (z. B. WP_BEWORK_URL). */
+	public static function env_block( $new, $user_login ) {
+		$name = strtoupper( preg_replace( '/[^A-Za-z0-9]+/', '', remove_accents( get_bloginfo( 'name' ) ) ) );
+		$p    = 'WP_' . ( '' !== $name ? $name : 'SITE' ) . '_';
+		return implode( "\n", [
+			$p . 'URL=' . untrailingslashit( home_url() ),
+			$p . 'USER=' . $user_login,
+			$p . 'APP_PASSWORD=' . ( '' !== $new['app_password'] ? $new['app_password'] : '<Anwendungspasswort unter Benutzer › Profil erzeugen>' ),
+			$p . 'BRIDGE_KEY=' . $new['key'],
+			$p . 'BRIDGE_SITE=' . self::site_id(),
+		] );
 	}
 
 	public static function handle_remove() {
@@ -144,7 +176,11 @@ final class BW_Bridge_Key {
 		echo '<h2>Verbindungsschlüssel</h2>';
 		echo '<p>Der Schlüssel verbindet genau diese Website mit dem Client (z. B. Claude). Er wird als Umgebungsvariable <code>WP_BRIDGE_KEY</code> eingetragen. Ohne ihn lehnt die Bridge ab – auch mit richtigem Anwendungspasswort. So landen Änderungen nie versehentlich auf der falschen Website.</p>';
 		if ( $new ) {
-			echo '<div class="notice notice-success inline"><p><strong>Neuer Schlüssel – wird nur jetzt angezeigt:</strong></p><p><input type="text" readonly class="large-text code" style="max-width:36em" value="' . esc_attr( $new ) . '" onfocus="this.select()"></p><p>Jetzt kopieren und als <code>WP_BRIDGE_KEY</code> eintragen. Nicht in einen Chat einfügen.</p></div>';
+			if ( ! is_array( $new ) ) {
+				$new = [ 'key' => (string) $new, 'app_password' => '' ];
+			}
+			$block = self::env_block( $new, wp_get_current_user()->user_login );
+			echo '<div class="notice notice-success inline"><p><strong>Zugangsdaten – werden nur jetzt angezeigt:</strong></p><p><textarea readonly class="large-text code" rows="5" style="max-width:48em" onfocus="this.select()">' . esc_textarea( $block ) . '</textarea></p><p>Jetzt kopieren und als Umgebungsvariablen eintragen. Nicht in einen Chat einfügen. Das Anwendungspasswort gehört dem aktuellen Benutzer und steht unter Benutzer › Profil › Anwendungspasswörter („BW WP Bridge“).</p></div>';
 		}
 		if ( self::is_active() ) {
 			echo '<p>Status: <strong>aktiv</strong>. Kennung dieser Website: <code>' . esc_html( self::site_id() ) . '</code> (nicht geheim; zum Gegenprüfen als <code>WP_BRIDGE_SITE</code> im Client).</p>';
@@ -154,7 +190,7 @@ final class BW_Bridge_Key {
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin-right:12px">';
 		wp_nonce_field( 'bw_bridge_key' );
 		echo '<input type="hidden" name="action" value="bw_bridge_key_generate">';
-		submit_button( self::is_active() ? 'Neuen Schlüssel erzeugen (alter wird ungültig)' : 'Schlüssel erzeugen', 'secondary', 'submit', false );
+		submit_button( self::is_active() ? 'Neu erzeugen (alter Schlüssel und altes Anwendungspasswort werden ungültig)' : 'Schlüssel und Zugangsdaten erzeugen', 'secondary', 'submit', false );
 		echo '</form>';
 		if ( self::is_active() ) {
 			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block" onsubmit="return confirm(\'Schlüssel entfernen? Die Bridge prüft dann nur noch das Anwendungspasswort.\')">';
