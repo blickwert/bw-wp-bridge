@@ -16,6 +16,7 @@ dazu über dieses Plugin:
 | `POST elementor/theme-builder/refresh` | Elementor Pro Theme Builder: Anzeigebedingungen aller Vorlagen neu einlesen und die aktuelle Zuordnung ausgeben (nötig, wenn eine Vorlage oder ihre Bedingung per API angelegt/gesetzt wurde) |
 | `GET/POST elementor/{id}/texts` | alle Texte einer Seite mit Widget-ID und Pfad lesen (`?q=` filtert) bzw. einzelne Texte gezielt setzen |
 | `GET elementor/{id}/backups`, `POST elementor/{id}/restore` | die letzten 10 automatischen Layout-Sicherungen auflisten bzw. eine zurückspielen |
+| `GET acf/schema` | ACF-Aufbau nur lesend: Feldgruppen mit allen Feldern, Platzierungsregeln, eigene Post Types und Taxonomien (`group` filtert nach Titel/Schlüssel) |
 | `GET search?q=…` | Seiten, Beiträge, Produkte, Post-Meta und Elementor-Texte durchsuchen (`types`, `lang`, `meta`, `limit`) |
 | `GET/POST translations/{id}` | WPML: Übersetzungen eines Beitrags lesen (`{ de: 34, en: 12 }`) bzw. den Beitrag mit `{ "translation_of": 12 }` (und optional `"language": "de"`) als Übersetzung eines anderen verbinden; verweigert (409), wenn in dieser Sprache schon eine andere Übersetzung existiert. Nur mit aktivem WPML (`status` zeigt es im Feld `wpml`); ohne WPML melden die Routen das und tun nichts |
 | `GET render/{id}` | sichtbarer Text der Seite im Frontend (`?q=` filtert Zeilen) |
