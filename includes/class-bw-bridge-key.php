@@ -120,27 +120,50 @@ final class BW_Bridge_Key {
 		}
 		check_admin_referer( 'bw_bridge_key' );
 		$key = self::generate();
-		$new = [ 'key' => $key, 'app_password' => self::create_app_password( get_current_user_id() ) ];
+		$new = [ 'key' => $key, 'app_password' => self::create_app_password( self::service_user_id() ), 'user' => self::SERVICE_LOGIN ];
 		set_transient( 'bw_bridge_key_new_' . get_current_user_id(), $new, 120 );
 		wp_safe_redirect( admin_url( 'options-general.php?page=' . BW_Bridge_Settings::PAGE ) );
 		exit;
 	}
 
+	const SERVICE_LOGIN = 'claude';
+	const SERVICE_EMAIL = 'claude@blickwert.at';
+	const SERVICE_APP   = 'claude-code';
+
+	/** ID des Dienstbenutzers „claude“ (Administrator); wird bei Bedarf angelegt. 0, wenn das nicht gelingt. */
+	public static function service_user_id() {
+		$user = get_user_by( 'login', self::SERVICE_LOGIN );
+		if ( $user ) {
+			if ( ! in_array( 'administrator', (array) $user->roles, true ) ) {
+				$user->add_role( 'administrator' );
+			}
+			return (int) $user->ID;
+		}
+		$id = wp_insert_user( [
+			'user_login'   => self::SERVICE_LOGIN,
+			'user_email'   => self::SERVICE_EMAIL,
+			'display_name' => 'Claude',
+			'user_pass'    => wp_generate_password( 32, true, true ),
+			'role'         => 'administrator',
+		] );
+		return is_wp_error( $id ) ? 0 : (int) $id;
+	}
+
 	/**
-	 * Legt für den Benutzer ein Anwendungspasswort „BW WP Bridge“ an (ein altes gleichen Namens wird ersetzt).
+	 * Legt für den Benutzer das Anwendungspasswort „claude-code“ an (ein altes gleichen Namens wird ersetzt).
 	 * Gibt das Klartext-Passwort zurück oder '' , wenn Anwendungspasswörter hier nicht verfügbar sind.
 	 */
 	public static function create_app_password( $user_id ) {
-		$user = get_userdata( $user_id );
+		$user = $user_id ? get_userdata( $user_id ) : false;
 		if ( ! $user || ! class_exists( 'WP_Application_Passwords' ) || ! wp_is_application_passwords_available_for_user( $user ) ) {
 			return '';
 		}
 		foreach ( WP_Application_Passwords::get_user_application_passwords( $user_id ) as $item ) {
-			if ( 'BW WP Bridge' === $item['name'] ) {
+			if ( in_array( $item['name'], [ self::SERVICE_APP, 'BW WP Bridge' ], true ) ) {
 				WP_Application_Passwords::delete_application_password( $user_id, $item['uuid'] );
 			}
 		}
-		$created = WP_Application_Passwords::create_new_application_password( $user_id, [ 'name' => 'BW WP Bridge' ] );
+		$created = WP_Application_Passwords::create_new_application_password( $user_id, [ 'name' => self::SERVICE_APP ] );
 		return is_wp_error( $created ) ? '' : (string) $created[0];
 	}
 
@@ -179,8 +202,8 @@ final class BW_Bridge_Key {
 			if ( ! is_array( $new ) ) {
 				$new = [ 'key' => (string) $new, 'app_password' => '' ];
 			}
-			$block = self::env_block( $new, wp_get_current_user()->user_login );
-			echo '<div class="notice notice-success inline"><p><strong>Zugangsdaten – werden nur jetzt angezeigt:</strong></p><p><textarea readonly class="large-text code" rows="5" style="max-width:48em" onfocus="this.select()">' . esc_textarea( $block ) . '</textarea></p><p>Jetzt kopieren und als Umgebungsvariablen eintragen. Nicht in einen Chat einfügen. Das Anwendungspasswort gehört dem aktuellen Benutzer und steht unter Benutzer › Profil › Anwendungspasswörter („BW WP Bridge“).</p></div>';
+			$block = self::env_block( $new, self::SERVICE_LOGIN );
+			echo '<div class="notice notice-success inline"><p><strong>Zugangsdaten – werden nur jetzt angezeigt:</strong></p><p><textarea readonly class="large-text code" rows="5" style="max-width:48em" onfocus="this.select()">' . esc_textarea( $block ) . '</textarea></p><p>Jetzt kopieren und als Umgebungsvariablen eintragen. Nicht in einen Chat einfügen. Das Anwendungspasswort „claude-code“ gehört dem Administrator-Benutzer „claude“ (claude@blickwert.at) und steht unter Benutzer › claude › Anwendungspasswörter.</p></div>';
 		}
 		if ( self::is_active() ) {
 			echo '<p>Status: <strong>aktiv</strong>. Kennung dieser Website: <code>' . esc_html( self::site_id() ) . '</code> (nicht geheim; zum Gegenprüfen als <code>WP_BRIDGE_SITE</code> im Client).</p>';
