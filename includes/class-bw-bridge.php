@@ -36,6 +36,7 @@ final class BW_WP_Bridge {
 		BW_Bridge_Elementor::register_routes();
 		BW_Bridge_Elementor_Texts::register_routes();
 		BW_Bridge_Search::register_routes();
+		BW_Bridge_Acf::register_routes();
 		BW_Bridge_Meta::register_routes();
 		BW_Bridge_Batch::register_routes();
 		BW_Bridge_Content_Types::register_routes();
@@ -56,7 +57,7 @@ final class BW_WP_Bridge {
 		$el = BW_Bridge_Elementor::elementor();
 		return rest_ensure_response( $info + [
 			'bridge'        => self::VERSION,
-			'features'      => [ 'elementor-texts', 'elementor-backups', 'elementor-dry-run', 'search', 'translations', 'translation-link', 'theme-builder-refresh', 'render', 'meta', 'batch', 'plugins', 'connection-key' ],
+			'features'      => [ 'elementor-texts', 'elementor-backups', 'elementor-dry-run', 'search', 'translations', 'translation-link', 'theme-builder-refresh', 'render', 'meta', 'batch', 'plugins', 'connection-key', 'acf-schema' ],
 			'wordpress'     => get_bloginfo( 'version' ),
 			'elementor'     => defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : null,
 			'elementor_pro' => defined( 'ELEMENTOR_PRO_VERSION' ) ? ELEMENTOR_PRO_VERSION : null,
