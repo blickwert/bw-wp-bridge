@@ -56,6 +56,12 @@
         ],
         [
             "action",
+            "admin_post_bw_bridge_scan_start",
+            "handle_scan",
+            10
+        ],
+        [
+            "action",
             "after_password_reset",
             "on_password_reset",
             10
@@ -76,6 +82,18 @@
             "action",
             "bw_bridge_log_maintenance",
             "maintenance",
+            10
+        ],
+        [
+            "action",
+            "bw_bridge_scan_daily",
+            "cron_daily",
+            10
+        ],
+        [
+            "action",
+            "bw_bridge_scan_step",
+            "step",
             10
         ],
         [
@@ -113,6 +131,12 @@
             "init",
             "maybe_install",
             1
+        ],
+        [
+            "action",
+            "init",
+            "maybe_install",
+            2
         ],
         [
             "action",
@@ -452,6 +476,20 @@
             []
         ],
         [
+            "bw-bridge/v1/scan",
+            "GET",
+            "status_route",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/scan",
+            "POST",
+            "start_route",
+            "can_manage",
+            []
+        ],
+        [
             "bw-bridge/v1/search",
             "GET",
             "search",
@@ -613,6 +651,20 @@
             "bw_bridge_plugins_install",
             "boolean",
             0,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_scan_files",
+            "boolean",
+            1,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_scan_vulns_on",
+            "boolean",
+            1,
             false
         ]
     ],

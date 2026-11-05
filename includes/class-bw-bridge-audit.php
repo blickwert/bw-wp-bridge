@@ -148,6 +148,13 @@ final class BW_Bridge_Audit {
 			$out[] = self::check( 'site_health', $crit ? 'fail' : ( (int) ( $health['recommended'] ?? 0 ) ? 'warn' : 'ok' ), sprintf( 'Website-Zustand: %d kritisch, %d empfohlen, %d gut', $crit, (int) ( $health['recommended'] ?? 0 ), (int) ( $health['good'] ?? 0 ) ), 'Letzter Lauf unter Werkzeuge › Website-Zustand.', $health );
 		}
 
+		// Datei- und Schwachstellen-Scan
+		if ( ! BW_Bridge_Scan::disabled() ) {
+			foreach ( self::scan_checks( BW_Bridge_Scan::status() ) as $c ) {
+				$out[] = $c;
+			}
+		}
+
 		// Freigaben der Bridge selbst
 		$bridge = [];
 		if ( BW_Bridge_Settings::can_write_enabled() ) {
@@ -163,6 +170,48 @@ final class BW_Bridge_Audit {
 		if ( BW_Bridge_Log::ready() ) {
 			$n = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COALESCE(SUM(cnt),0) FROM ' . BW_Bridge_Log::table() . " WHERE category = 'auth' AND action IN ('login_failed','app_password_failed') AND created >= %s", gmdate( 'Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS ) ) );
 			$out[] = self::check( 'failed_logins', $n > 500 ? 'warn' : 'info', $n . ' fehlgeschlagene Anmeldungen in 30 Tagen', $n > 500 ? 'Viele Versuche: Anmeldeschutz (Limit Login Attempts, 2FA, Captcha) prüfen.' : '', [ 'count' => $n ] );
+		}
+		return $out;
+	}
+
+	/** Prüfpunkte aus dem Scan (reine Logik, testbar): Dateiüberwachung, Integrität, Schwachstellen. */
+	public static function scan_checks( array $st, $changes = null ) {
+		$out = [];
+		if ( $st['enabled']['files'] ) {
+			$age = $st['finished'] ? ( time() - strtotime( $st['finished'] . ' UTC' ) ) / DAY_IN_SECONDS : null;
+			$out[] = null === $age
+				? self::check( 'file_scan', 'warn', $st['running'] ? 'Dateiüberwachung: erster Abgleich läuft' : 'Dateiüberwachung: noch kein Abgleich', 'Läuft täglich per Cron; sofort starten mit wp_bridge.py scan --start.' )
+				: self::check( 'file_scan', $age > 3 ? 'warn' : 'ok', sprintf( 'Dateiüberwachung: %s Dateien in %d Bereichen, letzter Abgleich %s', number_format( $st['files'], 0, ',', '.' ), $st['units'], gmdate( 'd.m.Y', strtotime( $st['finished'] . ' UTC' ) ) ), $age > 3 ? 'Der tägliche Abgleich ist überfällig – läuft der WordPress-Cron?' : '' );
+			if ( null === $changes && BW_Bridge_Log::ready() ) {
+				$rows    = BW_Bridge_Log::query( [ 'from' => gmdate( 'Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS ), 'category' => 'files', 'level' => 'warning', 'limit' => 200, 'archive' => false ] )['items'];
+				$changes = [ 'unexpected' => count( $rows ), 'suspicious' => count( array_filter( $rows, static fn( $r ) => 'suspicious' === $r['action'] || ! empty( $r['details']['php_unusual'] ) ) ) ];
+			}
+			if ( $changes ) {
+				$st_c  = $changes['suspicious'] ? 'fail' : ( $changes['unexpected'] ? 'warn' : 'ok' );
+				$out[] = self::check( 'file_changes', $st_c, $changes['unexpected'] ? sprintf( '%d unerwartete Dateiänderung(en) in 30 Tagen%s', $changes['unexpected'], $changes['suspicious'] ? ', davon ' . $changes['suspicious'] . ' mit verdächtigem Code oder PHP an ungewöhnlicher Stelle' : '' ) : 'Keine unerwarteten Dateiänderungen in 30 Tagen', $changes['unexpected'] ? 'Einzelheiten im Wartungsprotokoll (Sicherheit). Unerwartet heißt: nicht durch ein protokolliertes Update oder eine neue Version erklärt.' : '' );
+			}
+			$iss   = $st['integrity']['issues'];
+			$core  = array_filter( $iss, static fn( $i ) => 'core' === $i['unit'] );
+			$out[] = $iss
+				? self::check( 'integrity', $core ? 'fail' : 'warn', count( $iss ) . ' Bereich(e) weichen vom Original ab', implode( '; ', array_map( static fn( $i ) => $i['label'] . ': ' . count( $i['modified'] ) . ' geändert, ' . count( $i['extra'] ) . ' zusätzlich', $iss ) ), $iss )
+				: self::check( 'integrity', $st['integrity']['verified'] ? 'ok' : 'info', $st['integrity']['verified'] ? $st['integrity']['verified'] . ' Bereich(e) stimmen mit dem Original von wordpress.org überein' : 'Integritätsprüfung noch nicht gelaufen' );
+		}
+		if ( $st['enabled']['vulns'] ) {
+			$v = $st['vulns'];
+			if ( ! $v['checked'] ) {
+				$out[] = self::check( 'vulnerabilities', 'warn', 'Schwachstellen-Prüfung noch nicht gelaufen' );
+			} else {
+				$c     = $v['counts'];
+				$bad   = $c['c'] + $c['h'];
+				$unfix = count( array_filter( $v['items'], static fn( $i ) => $i['unfixed'] ) );
+				$out[] = self::check(
+					'vulnerabilities',
+					$bad || $unfix ? 'fail' : ( $v['items'] ? 'warn' : 'ok' ),
+					$v['items'] ? sprintf( '%d bekannte Schwachstelle(n): %d kritisch, %d hoch, %d mittel, %d niedrig', count( $v['items'] ), $c['c'], $c['h'], $c['m'], $c['l'] ) : 'Keine bekannten Schwachstellen in Core, Plugins und Themes',
+					implode( '; ', array_map( static fn( $i ) => $i['name'] . ' ' . $i['version'] . ': ' . $i['title'] . ( $i['fixed_in'] ? ' (Update auf ' . $i['fixed_in'] . ')' : ( $i['unfixed'] ? ' (kein Update verfügbar – ersetzen oder entfernen)' : '' ) ), array_slice( $v['items'], 0, 10 ) ) ) . ( $v['errors'] ? ( $v['items'] ? ' · ' : '' ) . count( $v['errors'] ) . ' Abfrage(n) fehlgeschlagen' : '' ),
+					$v['items'] ?: null
+				);
+			}
 		}
 		return $out;
 	}

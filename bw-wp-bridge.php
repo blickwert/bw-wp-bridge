@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: BW WP Bridge
- * Description: Erweitert die WordPress-REST-API um Elementor-Layouts (mit Textzugriff und Sicherungen), Suche, Post-Meta, Stapelaufrufe, Elementor-Kit (Global Colors/Fonts), Vorlagen-Import, CPT- und Taxonomie-Definitionen sowie ein Wartungsprotokoll mit Berichten (Updates, Sicherheit, SEO, Änderungen) und (optional, im Backend freizuschalten) das Lesen und Schreiben von Theme-Dateien – für die Arbeit mit Claude Code auf Dev-/Staging-Servern.
+ * Description: Erweitert die WordPress-REST-API um Elementor-Layouts (mit Textzugriff und Sicherungen), Suche, Post-Meta, Stapelaufrufe, Elementor-Kit (Global Colors/Fonts), Vorlagen-Import, CPT- und Taxonomie-Definitionen sowie ein Wartungsprotokoll mit Berichten (Updates, Sicherheit, SEO, Änderungen), Dateiüberwachung und Schwachstellen-Scan und (optional, im Backend freizuschalten) das Lesen und Schreiben von Theme-Dateien – für die Arbeit mit Claude Code auf Dev-/Staging-Servern.
  * Version: 1.7.0
  * Requires at least: 6.4
  * Requires PHP: 7.4
@@ -45,6 +45,8 @@ spl_autoload_register(
 			'BW_Bridge_Log_WP'        => 'includes/class-bw-bridge-log-wp.php',
 			'BW_Bridge_History'       => 'includes/class-bw-bridge-history.php',
 			'BW_Bridge_Audit'         => 'includes/class-bw-bridge-audit.php',
+			'BW_Bridge_Scan'          => 'includes/class-bw-bridge-scan.php',
+			'BW_Bridge_Scan_Db_Store' => 'includes/class-bw-bridge-scan.php',
 			'BW_Bridge_Maintenance'   => 'admin/class-bw-bridge-maintenance.php',
 			'BW_Bridge_Settings'      => 'admin/class-bw-bridge-settings.php',
 		];

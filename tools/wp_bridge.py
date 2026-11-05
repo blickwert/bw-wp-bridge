@@ -51,6 +51,9 @@ Wartungsprotokoll und Bericht (ab Bridge 1.7):
   wp_bridge.py history-note "Kontaktformular-Empfänger umgestellt" --area changes --minutes 15 --ticket T-12
   wp_bridge.py report --period previous -o wartung.json  # alle Daten für den Wartungsbericht (inkl. Sicherheits-/SEO-Prüfung)
   wp_bridge.py audit                                    # Sicherheits- und SEO-Prüfung (aktueller Stand)
+  wp_bridge.py scan [--start]                           # Dateiüberwachung, Integrität, Schwachstellen: Stand bzw. jetzt prüfen
+  wp_bridge.py vulns                                    # bekannte Schwachstellen in Core, Plugins, Themes
+  wp_bridge.py scan-files --period previous --unexpected   # Dateiänderungen aus dem Protokoll
 
 Theme-Dateien (nur wenn im Backend unter Einstellungen › BW WP Bridge freigeschaltet):
   wp_bridge.py plugins                                 # installierte Plugins, Status, verfügbare Updates
@@ -404,7 +407,7 @@ def history_command(c, a):
     base = "bw-bridge/v1/history"
     if a.cmd == "history":
         q = range_query(a) + [("limit", str(a.limit))]
-        for k in ("area", "q", "via"):
+        for k in ("area", "q", "via", "category"):
             if getattr(a, k):
                 q.append((k, getattr(a, k)))
         r = c.request("GET", base, query=q)
@@ -448,6 +451,52 @@ def history_command(c, a):
             print("== %s" % title)
             for x in sorted(r[area], key=lambda x: ["fail", "warn", "info", "ok"].index(x["status"])):
                 print("  [%s] %s%s" % (STATUS_MARK[x["status"]], x["title"], (" – " + x["detail"]) if x.get("detail") else ""))
+
+
+SEVERITY = {"c": "kritisch", "h": "hoch", "m": "mittel", "l": "niedrig"}
+
+
+def print_vulns(v):
+    if not v.get("checked"):
+        print("Schwachstellen: noch nicht geprüft")
+        return
+    print("Schwachstellen (Stand %s, Quelle %s): %d" % (v["checked"][:16], v.get("source"), len(v["items"])))
+    for i in v["items"]:
+        fix = ("Update auf " + i["fixed_in"]) if i.get("fixed_in") else ("kein Update verfügbar" if i.get("unfixed") else "")
+        print("  [%-8s] %s %s – %s%s" % (SEVERITY.get(i.get("severity"), "?"), i["name"], i["version"], i["title"], (" (" + fix + ")") if fix else ""))
+    if v.get("errors"):
+        print("  %d Abfrage(n) fehlgeschlagen: %s" % (len(v["errors"]), ", ".join(v["errors"][:10])))
+
+
+def scan_command(c, a):
+    if a.cmd == "scan-files":
+        q = range_query(a) + [("category", "files,integrity"), ("limit", str(a.limit))]
+        if a.unexpected:
+            q.append(("level", "warning"))
+        r = c.request("GET", "bw-bridge/v1/history", query=q)
+        for e in r["items"]:
+            d = e.get("details") or {}
+            print("%s  %s" % (e["created"][:16], e["message"]))
+            for k, label in (("suspicious", "verdächtig"), ("php_unusual", "PHP ungewöhnlich"), ("modified", "geändert"), ("added", "neu"), ("deleted", "gelöscht"), ("extra", "zusätzlich")):
+                items = d.get(k) or []
+                if isinstance(items, dict):
+                    items = ["%s (%s)" % (p, ", ".join(h)) for p, h in items.items()]
+                for p in items[:15]:
+                    print("      %-16s %s" % (label, p))
+        return
+    r = c.request("POST" if getattr(a, "start", False) else "GET", "bw-bridge/v1/scan")
+    if getattr(a, "json_out", False):
+        out(r if a.cmd == "scan" else r["vulns"])
+        return
+    if a.cmd == "vulns":
+        print_vulns(r["vulns"])
+        return
+    print("Dateiüberwachung: %s · Schwachstellen: %s" % ("an" if r["enabled"]["files"] else "aus", "an" if r["enabled"]["vulns"] else "aus"))
+    print("Letzter Lauf: gestartet %s, fertig %s%s" % (r.get("started") or "-", r.get("finished") or "-", " · läuft noch (%d offen)" % r["pending"] if r["running"] else ""))
+    print("Dateien: %d in %d Bereichen · Integrität: %d unverändert, %d mit Abweichungen" % (r["files"], r["units"], r["integrity"]["verified"], len(r["integrity"]["issues"])))
+    for i in r["integrity"]["issues"]:
+        print("  ! %s %s: %d geändert, %d zusätzlich: %s" % (i["label"], i["version"], len(i["modified"]), len(i["extra"]), ", ".join((i["modified"] + i["extra"])[:5])))
+    print_vulns(r["vulns"])
 
 
 def main():
@@ -528,7 +577,12 @@ def main():
         s.add_argument("--to", help="JJJJ-MM-TT")
     s = sub.add_parser("history", help="Wartungsprotokoll lesen"); add_range(s)
     s.add_argument("--area", help="updates,security,seo,changes,system"); s.add_argument("-q", dest="q", help="Volltext"); s.add_argument("--via", help="z. B. claude,backend,cron")
+    s.add_argument("--category", help="z. B. files,integrity,vuln,plugin,content,note")
     s.add_argument("--limit", type=int, default=100); s.add_argument("--json", dest="json_out", action="store_true")
+    s = sub.add_parser("scan", help="Datei- und Schwachstellen-Scan: Stand anzeigen (--start: jetzt starten)"); s.add_argument("--start", action="store_true"); s.add_argument("--json", dest="json_out", action="store_true")
+    s = sub.add_parser("vulns", help="Bekannte Schwachstellen (Stand des letzten Scans)"); s.add_argument("--json", dest="json_out", action="store_true")
+    s = sub.add_parser("scan-files", help="Dateiänderungen und Integritätsabweichungen aus dem Protokoll"); add_range(s)
+    s.add_argument("--unexpected", action="store_true", help="nur unerwartete/verdächtige"); s.add_argument("--limit", type=int, default=100)
     s = sub.add_parser("history-note", help="Notiz ins Wartungsprotokoll schreiben"); s.add_argument("text")
     s.add_argument("--area", default="changes", choices=["updates", "security", "seo", "changes"]); s.add_argument("--minutes", type=int, help="Aufwand in Minuten")
     s.add_argument("--ticket"); s.add_argument("--tags", help="kommagetrennt"); s.add_argument("--date", help="JJJJ-MM-TT, zum Nachtragen (höchstens ein Jahr zurück)")
@@ -637,6 +691,8 @@ def main():
         plugins_command(c, a)
     elif a.cmd in ("history", "history-note", "report", "audit"):
         history_command(c, a)
+    elif a.cmd in ("scan", "vulns", "scan-files"):
+        scan_command(c, a)
     else:
         route = "post-types" if a.cmd.startswith("cpt") else "taxonomies"
         if a.cmd.endswith("-list"):

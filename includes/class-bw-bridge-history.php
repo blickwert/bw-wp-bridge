@@ -149,6 +149,7 @@ final class BW_Bridge_History {
 		if ( $with_audit ) {
 			$data['audit'] = BW_Bridge_Audit::run();
 		}
+		$data['scan'] = BW_Bridge_Scan::disabled() ? null : BW_Bridge_Scan::status();
 		return $data;
 	}
 

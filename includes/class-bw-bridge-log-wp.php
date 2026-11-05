@@ -38,7 +38,7 @@ final class BW_Bridge_Log_WP {
 	const SKIP_TYPES = [ 'revision', 'nav_menu_item', 'customize_changeset', 'oembed_cache', 'user_request', 'wp_global_styles', 'custom_css', 'scheduled-action', 'shop_order_placehold', 'shop_order', 'shop_subscription', 'elementor_snippet' ];
 
 	/** Bridge-Routen, die nicht als REST-Schreibzugriff zählen (eigene Einträge oder nur lesend). */
-	const SKIP_ROUTES = '#^/bw-bridge/v1/(history|audit|batch|plugins)(/|$)#';
+	const SKIP_ROUTES = '#^/bw-bridge/v1/(history|audit|batch|plugins|scan)(/|$)#';
 
 	/** Versionen vor einem Update (vom Upgrader gemerkt). */
 	private static $before = [];

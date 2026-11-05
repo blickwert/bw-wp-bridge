@@ -31,7 +31,9 @@ nach prompts/wartungsbericht.md. Ausgabe als Markdown, nichts auf der Website ä
    Ohne Zugang zur Website: die im Backend heruntergeladene JSON-Datei („Daten für Claude“) verwenden.
    Inhalt: `period`, `kpis`, `by_area`, `by_via`, `timeline`, `sections.updates`, `sections.security`
    (`events`, `failed_logins`, `logins`), `sections.seo`, `sections.changes` (`objects`, `events`), `notes`,
-   `audit` (`security`, `seo` mit Status `ok|info|warn|fail`), `audit_snapshots`, `versions`.
+   `audit` (`security`, `seo` mit Status `ok|info|warn|fail`), `audit_snapshots`, `scan` (Dateiüberwachung, `integrity.issues`,
+   `vulns.items` mit Schweregrad und `fixed_in`), `versions`. Dateiänderungen und Funde stehen außerdem in `sections.security.events`
+   (Kategorien `files`, `integrity`, `vuln`); Einzelheiten mit `wp_bridge.py scan-files --period … --unexpected`.
    Bei `truncated: true` zusätzlich `wp_bridge.py history --period … --area … --limit 1000` je Bereich lesen.
 3. **Stichproben (optional, lesend).** `wp_bridge.py plugins` (aktuelle Versionen), `wp_bridge.py render <id> -q …`
    für geänderte Seiten, `wp_bridge.py search …`. Nur wenn nötig, um eine Aussage zu belegen.
@@ -57,6 +59,8 @@ Updates · Sicherheitsereignisse · fehlgeschlagene Anmeldungen · manuelle Änd
 Core, Plugins, Themes mit von → nach, Datum; automatische Updates kennzeichnen.
 ### Sicherheit
 Benutzer/Rollen/Anwendungspasswörter, Datei-Editor, kritische Einstellungen; Anmeldungen der Administratoren;
+Dateiüberwachung (unerwartete Änderungen, PHP an ungewöhnlicher Stelle, Abweichungen vom Original) und Schwachstellen
+(gefunden / behoben im Zeitraum);
 fehlgeschlagene Anmeldungen (Summe, Spitzentag, häufigste Benutzernamen) mit Einordnung.
 ### SEO
 Geänderte SEO-Einstellungen und SEO-Notizen.
@@ -81,6 +85,8 @@ anstehende größere Updates (PHP, Major-Versionen).
 - Benutzer und Zugänge: Administratoren, Anwendungspasswörter (Alter, letzte Nutzung), Dienstbenutzer
 - Software-Stand: WordPress, PHP (Supportende), Plugins (inaktiv, lange ohne Update, Ersatz nötig)
 - Konfiguration: HTTPS, Datei-Editor, Debug, XML-RPC, Registrierung, Bridge-Freigaben
+- Dateien: unerwartete Änderungen im Jahr, Abweichungen vom Original, Malware-Hinweise – jeweils mit Ergebnis der Klärung (Notizen)
+- Schwachstellen: im Jahr gefunden und behoben (Dauer bis zur Behebung), offene Funde mit Schweregrad
 - Angriffe: fehlgeschlagene Anmeldungen im Jahresverlauf
 - Bewertung (gut / mit Empfehlungen / handlungsbedürftig) und Maßnahmenplan fürs nächste Vertragsjahr
 

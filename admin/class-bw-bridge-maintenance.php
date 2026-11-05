@@ -21,6 +21,7 @@ final class BW_Bridge_Maintenance {
 		add_action( 'admin_menu', [ __CLASS__, 'admin_menu' ] );
 		add_action( 'admin_post_bw_bridge_note', [ __CLASS__, 'handle_note' ] );
 		add_action( 'admin_post_bw_bridge_report_json', [ __CLASS__, 'handle_json' ] );
+		add_action( 'admin_post_bw_bridge_scan_start', [ __CLASS__, 'handle_scan' ] );
 	}
 
 	public static function admin_menu() {
@@ -58,6 +59,16 @@ final class BW_Bridge_Maintenance {
 		] );
 		$back = isset( $_POST['back'] ) ? esc_url_raw( wp_unslash( $_POST['back'] ) ) : self::url();
 		wp_safe_redirect( add_query_arg( 'bw_note', is_wp_error( $r ) ? rawurlencode( $r->get_error_message() ) : 'ok', $back ) );
+		exit;
+	}
+
+	public static function handle_scan() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Keine Berechtigung.', 403 );
+		}
+		check_admin_referer( 'bw_bridge_scan_start' );
+		BW_Bridge_Scan::start( true );
+		wp_safe_redirect( add_query_arg( 'bw_scan', '1', self::url() ) );
 		exit;
 	}
 
@@ -164,6 +175,10 @@ final class BW_Bridge_Maintenance {
 		}
 		echo '</section>';
 
+		if ( ! empty( $d['scan'] ) ) {
+			self::scan_card( $d['scan'] );
+		}
+
 		// Updates
 		echo '<section class="bwm-card"><div class="bwm-card-head"><h2><i class="bwm-dot is-updates"></i>Updates</h2><span class="bwm-muted">' . count( $d['sections']['updates'] ) . ' Einträge</span></div>';
 		self::table( $d['sections']['updates'], [ 'date' => 'Datum', 'message' => 'Was', 'via' => 'Wie', 'user' => 'Benutzer' ], 'Keine Updates in diesem Zeitraum.' );
@@ -241,6 +256,65 @@ final class BW_Bridge_Maintenance {
 		printf( '<textarea readonly class="large-text code" rows="5" onfocus="this.select()">%s</textarea>', esc_textarea( self::prompt( $d ) ) );
 		echo '</section>';
 		echo '<p class="bwm-muted">Erstellt ' . esc_html( date_i18n( 'd.m.Y H:i' ) ) . ' · WordPress ' . esc_html( $d['versions']['wordpress'] ) . ' · PHP ' . esc_html( $d['versions']['php'] ) . ' · BW WP Bridge ' . esc_html( $d['versions']['bridge'] ) . '</p>';
+	}
+
+	/** Dateiüberwachung, Integrität und Schwachstellen (aktueller Stand). */
+	private static function scan_card( array $sc ) {
+		$fmt = static fn( $utc ) => $utc ? get_date_from_gmt( $utc, 'd.m.Y H:i' ) : '–';
+		echo '<section class="bwm-card"><div class="bwm-card-head"><h2>Dateien und Schwachstellen (aktueller Stand)</h2><span class="bw-no-print">';
+		if ( $sc['running'] ) {
+			echo '<span class="bwm-muted">Abgleich läuft (' . (int) $sc['pending'] . ' Bereiche offen) </span>';
+		}
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline">';
+		wp_nonce_field( 'bw_bridge_scan_start' );
+		echo '<input type="hidden" name="action" value="bw_bridge_scan_start"><button class="button">Jetzt prüfen</button></form></span></div>';
+		if ( isset( $_GET['bw_scan'] ) ) {
+			echo '<p class="bwm-muted bw-no-print">Prüfung gestartet; größere Websites werden in Schritten im Hintergrund fertig.</p>';
+		}
+		echo '<div class="bwm-cols"><div><h3>Dateiüberwachung</h3>';
+		if ( $sc['enabled']['files'] ) {
+			printf( '<p>%s Dateien in %d Bereichen · letzter vollständiger Abgleich: %s</p>', esc_html( number_format_i18n( $sc['files'] ) ), (int) $sc['units'], esc_html( $fmt( $sc['finished'] ) ) );
+			$iss = $sc['integrity']['issues'];
+			echo '<p><strong>Vergleich mit dem Original:</strong> ' . esc_html( $sc['integrity']['verified'] . ' Bereich(e) unverändert' ) . ( $iss ? ', <strong>' . count( $iss ) . ' mit Abweichungen</strong>' : '' ) . '</p>';
+			if ( $iss ) {
+				echo '<ul class="bwm-list" style="columns:1">';
+				foreach ( $iss as $i ) {
+					printf( '<li><b class="bwm-status-inline is-warn" aria-hidden="true">!</b> %s %s: %d geändert, %d zusätzlich <span class="bwm-muted">%s</span></li>', esc_html( $i['label'] ), esc_html( $i['version'] ), count( $i['modified'] ), count( $i['extra'] ), esc_html( implode( ', ', array_slice( array_merge( $i['modified'], $i['extra'] ), 0, 5 ) ) ) );
+				}
+				echo '</ul>';
+			}
+			echo '<p class="bwm-muted">Änderungen stehen im Abschnitt Sicherheit unten und im Protokoll.</p>';
+		} else {
+			echo '<p class="bwm-muted">Abgeschaltet (Einstellungen › BW WP Bridge).</p>';
+		}
+		echo '</div><div><h3>Bekannte Schwachstellen</h3>';
+		$v = $sc['vulns'];
+		if ( ! $sc['enabled']['vulns'] ) {
+			echo '<p class="bwm-muted">Abgeschaltet (Einstellungen › BW WP Bridge).</p>';
+		} elseif ( ! $v['checked'] ) {
+			echo '<p class="bwm-muted">Noch nicht geprüft.</p>';
+		} elseif ( ! $v['items'] ) {
+			echo '<p><b class="bwm-status-inline is-ok" aria-hidden="true">✓</b> Keine bekannten Schwachstellen. <span class="bwm-muted">Stand ' . esc_html( $fmt( $v['checked'] ) ) . ', Quelle wpvulnerability.net</span></p>';
+		} else {
+			echo '<table class="bwm-table"><thead><tr><th>Komponente</th><th>Schwachstelle</th><th>Schwere</th><th>Lösung</th></tr></thead><tbody>';
+			foreach ( $v['items'] as $i ) {
+				printf(
+					'<tr class="%s"><td>%s %s</td><td>%s</td><td>%s%s</td><td>%s</td></tr>',
+					in_array( $i['severity'], [ 'c', 'h' ], true ) ? 'lvl-warning' : '',
+					esc_html( $i['name'] ),
+					esc_html( $i['version'] ),
+					$i['link'] ? '<a href="' . esc_url( $i['link'] ) . '" target="_blank" rel="noopener noreferrer">' . esc_html( $i['title'] ) . '</a>' : esc_html( $i['title'] ),
+					esc_html( ucfirst( BW_Bridge_Scan::severity_label( $i['severity'] ) ) ),
+					null !== $i['score'] ? ' <span class="bwm-muted">(' . esc_html( number_format_i18n( $i['score'], 1 ) ) . ')</span>' : '',
+					esc_html( $i['fixed_in'] ? 'Update auf ' . $i['fixed_in'] : ( $i['unfixed'] ? 'kein Update – ersetzen/entfernen' : 'Update prüfen' ) )
+				);
+			}
+			echo '</tbody></table><p class="bwm-muted">Stand ' . esc_html( $fmt( $v['checked'] ) ) . ', Quelle wpvulnerability.net</p>';
+		}
+		if ( $v['errors'] ) {
+			echo '<p class="bwm-muted">' . count( $v['errors'] ) . ' Abfrage(n) fehlgeschlagen, werden beim nächsten Lauf wiederholt.</p>';
+		}
+		echo '</div></div></section>';
 	}
 
 	/** Text, mit dem Claude den Abschlussbericht erstellt (Langfassung in prompts/wartungsbericht.md). */
@@ -496,6 +570,11 @@ final class BW_Bridge_Maintenance {
 		register_setting( $group, BW_Bridge_Log::OPT_DB_DAYS, [ 'type' => 'integer', 'default' => BW_Bridge_Log::DEFAULT_DB_DAYS, 'show_in_rest' => false, 'sanitize_callback' => static fn( $v ) => max( 30, min( 3650, (int) $v ) ) ] );
 		register_setting( $group, BW_Bridge_Log::OPT_KEEP_DAYS, [ 'type' => 'integer', 'default' => BW_Bridge_Log::DEFAULT_KEEP, 'show_in_rest' => false, 'sanitize_callback' => static fn( $v ) => max( 0, min( 36500, (int) $v ) ) ] );
 		register_setting( $group, BW_Bridge_Log::OPT_START, [ 'type' => 'string', 'default' => '', 'show_in_rest' => false, 'sanitize_callback' => static fn( $v ) => preg_match( '/^\d{4}-\d{2}-\d{2}$/', (string) $v ) ? (string) $v : '' ] );
+		if ( ! BW_Bridge_Scan::disabled() ) {
+			$bool = static fn( $v ) => $v ? 1 : 0;
+			register_setting( $group, BW_Bridge_Scan::OPT_FILES_ON, [ 'type' => 'boolean', 'default' => 1, 'show_in_rest' => false, 'sanitize_callback' => $bool ] );
+			register_setting( $group, BW_Bridge_Scan::OPT_VULNS_ON, [ 'type' => 'boolean', 'default' => 1, 'show_in_rest' => false, 'sanitize_callback' => $bool ] );
+		}
 		register_setting( $group, BW_Bridge_Log::OPT_RHYTHM, [ 'type' => 'string', 'default' => 'quarter', 'show_in_rest' => false, 'sanitize_callback' => static fn( $v ) => isset( BW_Bridge_Log::RHYTHMS[ $v ] ) ? $v : 'quarter' ] );
 	}
 
@@ -509,6 +588,10 @@ final class BW_Bridge_Maintenance {
 		}
 		echo '</select> ab <input type="date" name="' . esc_attr( BW_Bridge_Log::OPT_START ) . '" value="' . esc_attr( (string) get_option( BW_Bridge_Log::OPT_START, '' ) ) . '"><p class="description">Vertragsbeginn. Leer = Kalenderzeiträume (Quartale ab 1. Jänner). Das Vertragsjahr für die jährliche Sicherheitsanalyse rechnet ab diesem Datum.</p></td></tr>';
 		printf( '<tr><th scope="row">Tage in der Datenbank</th><td><input type="number" min="30" max="3650" name="%s" value="%d" class="small-text"> <p class="description">Ältere Einträge wandern monatsweise in komprimierte Archivdateien unter <code>wp-content/uploads/bw-bridge-log-…/</code> (gesperrt) und werden für Berichte von dort mitgelesen.</p></td></tr>', esc_attr( BW_Bridge_Log::OPT_DB_DAYS ), (int) BW_Bridge_Log::db_days() );
+		if ( ! BW_Bridge_Scan::disabled() ) {
+			printf( '<tr><th scope="row">Dateien überwachen</th><td><label><input type="checkbox" name="%s" value="1" %s> aktivieren</label><p class="description">Täglicher Abgleich der Code-Dateien von Core, Plugins und Themes sowie der PHP-Dateien in uploads; Vergleich mit den Originaldateien von wordpress.org. Unerwartete Änderungen und PHP-Dateien an ungewöhnlicher Stelle erscheinen als Warnung (es wird nichts verschoben oder gelöscht).</p></td></tr>', esc_attr( BW_Bridge_Scan::OPT_FILES_ON ), checked( BW_Bridge_Scan::files_enabled(), true, false ) );
+			printf( '<tr><th scope="row">Schwachstellen prüfen</th><td><label><input type="checkbox" name="%s" value="1" %s> aktivieren</label><p class="description">Täglich gegen die öffentliche Datenbank von <a href="https://www.wpvulnerability.net/" target="_blank" rel="noopener noreferrer">wpvulnerability.net</a> (ohne Schlüssel). Übermittelt werden nur die Namen (Slugs) der Plugins und Themes und die WordPress-Version.</p></td></tr>', esc_attr( BW_Bridge_Scan::OPT_VULNS_ON ), checked( BW_Bridge_Scan::vulns_enabled(), true, false ) );
+		}
 		printf( '<tr><th scope="row">Aufbewahrung gesamt</th><td><input type="number" min="0" max="36500" name="%s" value="%d" class="small-text"> Tage <p class="description">Danach werden Einträge und Archivdateien gelöscht. 0 = unbegrenzt. Mindestens so lang wie die Tage in der Datenbank.</p></td></tr>', esc_attr( BW_Bridge_Log::OPT_KEEP_DAYS ), (int) get_option( BW_Bridge_Log::OPT_KEEP_DAYS, BW_Bridge_Log::DEFAULT_KEEP ) );
 	}
 
