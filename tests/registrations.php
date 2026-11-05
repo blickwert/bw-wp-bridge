@@ -19,6 +19,7 @@ function add_action( $tag, $cb, $prio = 10, $n = 1 ) { $GLOBALS['rec']['hooks'][
 function add_filter( $tag, $cb, $prio = 10, $n = 1 ) { $GLOBALS['rec']['hooks'][] = [ 'filter', $tag, bw_method( $cb ), $prio ]; }
 function register_setting( $group, $name, $args = [] ) { $GLOBALS['rec']['settings'][] = [ $group, $name, $args['type'] ?? null, $args['default'] ?? null, $args['show_in_rest'] ?? null ]; }
 function add_options_page( $t, $m, $cap, $slug, $cb = null ) { $GLOBALS['rec']['menu'][] = [ $t, $m, $cap, $slug, $cb ? bw_method( $cb ) : null ]; }
+function add_management_page( $t, $m, $cap, $slug, $cb = null ) { $GLOBALS['rec']['menu'][] = [ $t, $m, $cap, $slug, $cb ? bw_method( $cb ) : null ]; }
 function register_rest_route( $ns, $route, $args = [] ) {
 	$handlers = isset( $args['methods'] ) ? [ $args ] : $args;
 	foreach ( $handlers as $h ) {

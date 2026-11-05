@@ -46,6 +46,12 @@ Texte, Suche, Meta, Stapel (ab Bridge 1.2):
   wp_bridge.py meta-set 56 --set _shop_hinweis=Text --dry-run
   wp_bridge.py batch operationen.json                  # {"operations":[{"method","path","query"?,"body"?}, …]}
 
+Wartungsprotokoll und Bericht (ab Bridge 1.7):
+  wp_bridge.py history --period previous --area updates   # Einträge (period: current|previous|year|previous-year oder --from/--to)
+  wp_bridge.py history-note "Kontaktformular-Empfänger umgestellt" --area changes --minutes 15 --ticket T-12
+  wp_bridge.py report --period previous -o wartung.json  # alle Daten für den Wartungsbericht (inkl. Sicherheits-/SEO-Prüfung)
+  wp_bridge.py audit                                    # Sicherheits- und SEO-Prüfung (aktueller Stand)
+
 Theme-Dateien (nur wenn im Backend unter Einstellungen › BW WP Bridge freigeschaltet):
   wp_bridge.py plugins                                 # installierte Plugins, Status, verfügbare Updates
   wp_bridge.py plugin-install --slug wordpress-seo --activate      # aus dem wordpress.org-Verzeichnis
@@ -71,6 +77,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+
+CLIENT_VERSION = "1.7"
 
 SITE_FIELDS = {"URL": "url", "USER": "user", "APP_PASSWORD": "password", "BRIDGE_KEY": "key", "BRIDGE_SITE": "site", "BASIC_AUTH": "basic", "TIMEOUT": "timeout"}
 
@@ -149,6 +157,8 @@ class Client:
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(self.url(path, query), data=data, method=method)
         req.add_header("Accept", "application/json")
+        # Kennzeichnet Zugriffe im Wartungsprotokoll der Website als „Claude“.
+        req.add_header("User-Agent", "bw-wp-bridge-client/%s (Claude Code)" % CLIENT_VERSION)
         if self.key:
             req.add_header("X-BW-Bridge-Key", self.key)
         if data is not None:
@@ -374,6 +384,72 @@ def batch_command(c, a):
         sys.exit(1)
 
 
+def range_query(a):
+    q = []
+    if getattr(a, "from_", None) or getattr(a, "to", None):
+        if a.from_:
+            q.append(("from", a.from_))
+        if a.to:
+            q.append(("to", a.to))
+    elif getattr(a, "period", None):
+        q.append(("period", a.period))
+    return q
+
+
+AREA_NAMES = {"updates": "Updates", "security": "Sicherheit", "seo": "SEO", "changes": "Änderungen", "system": "System"}
+STATUS_MARK = {"ok": "ok  ", "info": "info", "warn": "!   ", "fail": "XX  "}
+
+
+def history_command(c, a):
+    base = "bw-bridge/v1/history"
+    if a.cmd == "history":
+        q = range_query(a) + [("limit", str(a.limit))]
+        for k in ("area", "q", "via"):
+            if getattr(a, k):
+                q.append((k, getattr(a, k)))
+        r = c.request("GET", base, query=q)
+        if a.json_out:
+            out(r)
+            return
+        if r.get("period"):
+            print("Zeitraum: %s (%s bis %s) · %d Einträge" % (r["period"]["label"], r["period"]["from"], r["period"]["to"], r["total"]), file=sys.stderr)
+        for e in r["items"]:
+            text = (e.get("details") or {}).get("text") if e.get("source") == "note" else e.get("message")
+            print("%s  %-10s %-8s %s%s" % (e["created"][:16], AREA_NAMES.get(e["area"], e["area"]), e.get("via") or "-", (text or "").replace("\n", " ")[:150], " (%d×)" % e["cnt"] if e.get("cnt", 1) > 1 else ""))
+    elif a.cmd == "history-note":
+        body = {"text": a.text, "area": a.area}
+        if a.minutes is not None:
+            body["minutes"] = a.minutes
+        for k in ("ticket", "date"):
+            if getattr(a, k):
+                body[k] = getattr(a, k)
+        if a.tags:
+            body["tags"] = [t.strip() for t in a.tags.split(",") if t.strip()]
+        r = c.request("POST", base + "/notes", body)
+        print("Notiz gespeichert (#%s)" % r.get("id"))
+    elif a.cmd == "report":
+        q = range_query(a)
+        if a.no_audit:
+            q.append(("audit", "false"))
+        r = c.request("GET", base + "/report", query=q)
+        if a.out:
+            out(r, a.out)
+        else:
+            out(r)
+        k = r["kpis"]
+        print("%s · %s: %d Updates, %d Sicherheitsereignisse, %d fehlgeschlagene Anmeldungen, %d Änderungen, %d Notizen (%d min)" % (
+            r["site"]["name"], r["period"]["label"], k["updates"] + k["installs"], k["security_events"], k["failed_logins"], k["changes"], k["notes"], k["minutes"]), file=sys.stderr)
+    elif a.cmd == "audit":
+        r = c.request("GET", "bw-bridge/v1/audit")
+        if a.json_out:
+            out(r)
+            return
+        for area, title in (("security", "Sicherheit"), ("seo", "SEO")):
+            print("== %s" % title)
+            for x in sorted(r[area], key=lambda x: ["fail", "warn", "info", "ok"].index(x["status"])):
+                print("  [%s] %s%s" % (STATUS_MARK[x["status"]], x["title"], (" – " + x["detail"]) if x.get("detail") else ""))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -445,6 +521,20 @@ def main():
     s = sub.add_parser("theme-restore", help="Sicherung zurückspielen"); s.add_argument("path"); s.add_argument("--backup")
     for name in ("theme-ls", "theme-get", "theme-put", "theme-rm", "theme-backups", "theme-restore"):
         sub.choices[name].add_argument("--parent", action="store_true", help="Parent-Theme statt aktivem Theme")
+
+    def add_range(s):
+        s.add_argument("--period", choices=["current", "previous", "year", "previous-year"], help="Abrechnungszeitraum laut Einstellungen der Website")
+        s.add_argument("--from", dest="from_", help="JJJJ-MM-TT")
+        s.add_argument("--to", help="JJJJ-MM-TT")
+    s = sub.add_parser("history", help="Wartungsprotokoll lesen"); add_range(s)
+    s.add_argument("--area", help="updates,security,seo,changes,system"); s.add_argument("-q", dest="q", help="Volltext"); s.add_argument("--via", help="z. B. claude,backend,cron")
+    s.add_argument("--limit", type=int, default=100); s.add_argument("--json", dest="json_out", action="store_true")
+    s = sub.add_parser("history-note", help="Notiz ins Wartungsprotokoll schreiben"); s.add_argument("text")
+    s.add_argument("--area", default="changes", choices=["updates", "security", "seo", "changes"]); s.add_argument("--minutes", type=int, help="Aufwand in Minuten")
+    s.add_argument("--ticket"); s.add_argument("--tags", help="kommagetrennt"); s.add_argument("--date", help="JJJJ-MM-TT, zum Nachtragen (höchstens ein Jahr zurück)")
+    s = sub.add_parser("report", help="Alle Daten für den Wartungsbericht eines Zeitraums"); add_range(s)
+    s.add_argument("--no-audit", action="store_true", help="ohne Sicherheits-/SEO-Prüfung"); s.add_argument("-o", "--out")
+    s = sub.add_parser("audit", help="Sicherheits- und SEO-Prüfung (aktueller Stand)"); s.add_argument("--json", dest="json_out", action="store_true")
 
     sub.add_parser("sites", help="Eingetragene Websites auflisten (ohne Geheimnisse, ohne Verbindung)")
     p.add_argument("--timeout", type=int, help="Sekunden pro Anfrage (Standard 120 oder WP_TIMEOUT)")
@@ -545,6 +635,8 @@ def main():
         theme_command(c, a)
     elif a.cmd in ("plugins", "plugin-install", "plugin-update"):
         plugins_command(c, a)
+    elif a.cmd in ("history", "history-note", "report", "audit"):
+        history_command(c, a)
     else:
         route = "post-types" if a.cmd.startswith("cpt") else "taxonomies"
         if a.cmd.endswith("-list"):
