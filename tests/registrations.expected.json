@@ -50,6 +50,18 @@
         ],
         [
             "action",
+            "admin_post_bw_bridge_note_minutes",
+            "handle_note_minutes",
+            10
+        ],
+        [
+            "action",
+            "admin_post_bw_bridge_rename_service",
+            "handle_rename",
+            10
+        ],
+        [
+            "action",
             "admin_post_bw_bridge_report_json",
             "handle_json",
             10
@@ -208,6 +220,12 @@
             "action",
             "user_register",
             "on_user_register",
+            10
+        ],
+        [
+            "action",
+            "wp_ajax_bw_bridge_note_minutes",
+            "ajax_note_minutes",
             10
         ],
         [
@@ -405,9 +423,20 @@
                 "text",
                 "area",
                 "minutes",
+                "estimated",
                 "ticket",
                 "tags",
                 "date"
+            ]
+        ],
+        [
+            "bw-bridge/v1/history/notes/(?P<id>\\d+)",
+            "POST",
+            "note_minutes_route",
+            "can_manage",
+            [
+                "minutes",
+                "estimated"
             ]
         ],
         [

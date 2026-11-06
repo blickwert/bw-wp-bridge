@@ -130,7 +130,9 @@ final class BW_Bridge_Key {
 
 	const SERVICE_LOGIN  = 'support';
 	const SERVICE_EMAIL  = 'support@blickwert.at';
-	const SERVICE_APP    = 'claude-code';
+	const SERVICE_APP    = 'Wartung';
+	/** Frühere Namen des Anwendungspassworts; werden beim Neu-Erzeugen ebenfalls ersetzt. */
+	const LEGACY_APPS    = [ 'claude-code', 'BW WP Bridge' ];
 	const SERVICE_META   = '_bw_bridge_service';
 	const LEGACY_LOGINS  = [ 'claude' ];
 
@@ -245,7 +247,7 @@ final class BW_Bridge_Key {
 	}
 
 	/**
-	 * Legt für den Benutzer das Anwendungspasswort „claude-code“ an (ein altes gleichen Namens wird ersetzt).
+	 * Legt für den Benutzer das Anwendungspasswort „Wartung“ an (alte gleichen oder früheren Namens werden ersetzt).
 	 * Gibt das Klartext-Passwort zurück oder '' , wenn Anwendungspasswörter hier nicht verfügbar sind.
 	 */
 	public static function create_app_password( $user_id ) {
@@ -254,7 +256,7 @@ final class BW_Bridge_Key {
 			return '';
 		}
 		foreach ( WP_Application_Passwords::get_user_application_passwords( $user_id ) as $item ) {
-			if ( in_array( $item['name'], [ self::SERVICE_APP, 'BW WP Bridge' ], true ) ) {
+			if ( in_array( $item['name'], array_merge( [ self::SERVICE_APP ], self::LEGACY_APPS ), true ) ) {
 				WP_Application_Passwords::delete_application_password( $user_id, $item['uuid'] );
 			}
 		}
@@ -300,7 +302,7 @@ final class BW_Bridge_Key {
 			}
 			$login = isset( $new['user'] ) && '' !== (string) $new['user'] ? (string) $new['user'] : self::service_user_login( self::service_user() ? self::service_user()->ID : 0 );
 			$block = self::env_block( $new, $login );
-			echo '<div class="notice notice-success inline"><p><strong>Zugangsdaten – werden nur jetzt angezeigt:</strong></p><p><textarea readonly class="large-text code" rows="5" style="max-width:48em" onfocus="this.select()">' . esc_textarea( $block ) . '</textarea></p><p>Jetzt kopieren und als Umgebungsvariablen eintragen. Nicht in einen Chat einfügen. Das Anwendungspasswort „claude-code“ gehört dem Administrator-Benutzer „' . esc_html( $login ) . '“ und steht unter Benutzer › ' . esc_html( $login ) . ' › Anwendungspasswörter.</p></div>';
+			echo '<div class="notice notice-success inline"><p><strong>Zugangsdaten – werden nur jetzt angezeigt:</strong></p><p><textarea readonly class="large-text code" rows="5" style="max-width:48em" onfocus="this.select()">' . esc_textarea( $block ) . '</textarea></p><p>Jetzt kopieren und als Umgebungsvariablen eintragen. Nicht in einen Chat einfügen. Das Anwendungspasswort „' . esc_html( self::SERVICE_APP ) . '“ gehört dem Administrator-Benutzer „' . esc_html( $login ) . '“ und steht unter Benutzer › ' . esc_html( $login ) . ' › Anwendungspasswörter.</p></div>';
 		}
 		if ( self::is_active() ) {
 			echo '<p>Status: <strong>aktiv</strong>. Kennung dieser Website: <code>' . esc_html( self::site_id() ) . '</code> (nicht geheim; zum Gegenprüfen als <code>WP_BRIDGE_SITE</code> im Client).</p>';

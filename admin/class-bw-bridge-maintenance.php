@@ -2,8 +2,9 @@
 /**
  * Backend: Werkzeuge › Wartungsprotokoll. Zeigt den Bericht eines Zeitraums (Kennzahlen, Aktivität als Grafik,
  * Sicherheits- und SEO-Prüfung, Updates, manuelle Änderungen, Notizen), das vollständige Protokoll und ein Formular
- * für Notizen. Daten aus BW_Bridge_History::report() – dieselben, die Claude über die REST-API bekommt.
- * Drucken bzw. als PDF speichern über den Browser; „Daten für Claude“ lädt das JSON herunter.
+ * für Notizen. Daten aus BW_Bridge_History::report() – dieselben, die der Client über die REST-API bekommt.
+ * Drucken bzw. als PDF speichern über den Browser; „Daten exportieren (JSON)“ lädt das JSON herunter.
+ * Die Dauer je Notiz lässt sich direkt in der Tabelle ändern (Ajax bzw. Formular ohne JavaScript).
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -13,13 +14,15 @@ final class BW_Bridge_Maintenance {
 	const PAGE = 'bw-bridge-maintenance';
 
 	const AREA_LABELS = [ 'updates' => 'Updates', 'security' => 'Sicherheit', 'seo' => 'SEO', 'changes' => 'Manuelle Änderungen' ];
-	const VIA_LABELS  = [ 'claude' => 'Claude', 'backend' => 'Backend', 'web' => 'Website/Anmeldeseite', 'app' => 'Anwendungspasswort', 'rest' => 'REST-API', 'cron' => 'Automatisch (Cron)', 'cli' => 'WP-CLI', '' => 'unbekannt' ];
+	const VIA_LABELS  = [ 'claude' => 'Support', 'backend' => 'Backend', 'web' => 'Website/Anmeldeseite', 'app' => 'Anwendungspasswort', 'rest' => 'REST-API', 'cron' => 'Automatisch (Cron)', 'cli' => 'WP-CLI', '' => 'unbekannt' ];
 	const STATUS      = [ 'ok' => [ '✓', 'In Ordnung' ], 'info' => [ 'i', 'Hinweis' ], 'warn' => [ '!', 'Empfehlung' ], 'fail' => [ '✕', 'Dringend' ] ];
 	const PERIODS     = [ 'current' => 'Laufender Zeitraum', 'previous' => 'Vorheriger Zeitraum', 'year' => 'Laufendes Vertragsjahr', 'previous-year' => 'Vorheriges Vertragsjahr' ];
 
 	public static function init() {
 		add_action( 'admin_menu', [ __CLASS__, 'admin_menu' ] );
 		add_action( 'admin_post_bw_bridge_note', [ __CLASS__, 'handle_note' ] );
+		add_action( 'admin_post_bw_bridge_note_minutes', [ __CLASS__, 'handle_note_minutes' ] );
+		add_action( 'wp_ajax_bw_bridge_note_minutes', [ __CLASS__, 'ajax_note_minutes' ] );
 		add_action( 'admin_post_bw_bridge_report_json', [ __CLASS__, 'handle_json' ] );
 		add_action( 'admin_post_bw_bridge_scan_start', [ __CLASS__, 'handle_scan' ] );
 		add_action( 'admin_post_bw_bridge_seo_start', [ __CLASS__, 'handle_seo' ] );
@@ -53,13 +56,61 @@ final class BW_Bridge_Maintenance {
 		$r = BW_Bridge_History::add_note( [
 			'text'    => isset( $_POST['text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['text'] ) ) : '',
 			'area'    => isset( $_POST['area'] ) ? sanitize_key( wp_unslash( $_POST['area'] ) ) : 'changes',
-			'minutes' => isset( $_POST['minutes'] ) && '' !== $_POST['minutes'] ? (int) $_POST['minutes'] : null,
+			'minutes' => isset( $_POST['minutes'] ) ? sanitize_text_field( wp_unslash( $_POST['minutes'] ) ) : null, // „Dauer“; das Formfeld heißt aus Kompatibilitätsgründen weiter minutes.
 			'ticket'  => isset( $_POST['ticket'] ) ? sanitize_text_field( wp_unslash( $_POST['ticket'] ) ) : '',
 			'tags'    => isset( $_POST['tags'] ) ? sanitize_text_field( wp_unslash( $_POST['tags'] ) ) : '',
 			'date'    => ! empty( $_POST['date'] ) && sanitize_text_field( wp_unslash( $_POST['date'] ) ) !== BW_Bridge_Log::local_today() ? sanitize_text_field( wp_unslash( $_POST['date'] ) ) : null,
 		] );
 		$back = isset( $_POST['back'] ) ? esc_url_raw( wp_unslash( $_POST['back'] ) ) : self::url();
 		wp_safe_redirect( add_query_arg( 'bw_note', is_wp_error( $r ) ? rawurlencode( $r->get_error_message() ) : 'ok', $back ) );
+		exit;
+	}
+
+	/** Dauer einer Notiz per Ajax speichern (bestätigt eine Schätzung). */
+	public static function ajax_note_minutes() {
+		check_ajax_referer( 'bw_bridge_note_minutes', 'nonce' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( [ 'message' => 'Keine Berechtigung.' ], 403 );
+		}
+		$raw = isset( $_POST['minutes'] ) ? sanitize_text_field( wp_unslash( $_POST['minutes'] ) ) : '';
+		$min = BW_Bridge_History::parse_duration( $raw );
+		if ( false === $min ) {
+			wp_send_json_error( [ 'message' => 'Dauer nicht lesbar (z. B. 0:15, 1h30, 1,5h).' ] );
+		}
+		$res = BW_Bridge_History::set_note_minutes( isset( $_POST['id'] ) ? (int) $_POST['id'] : 0, $min );
+		if ( is_wp_error( $res ) ) {
+			wp_send_json_error( [ 'message' => $res->get_error_message() ] );
+		}
+		wp_send_json_success( [ 'minutes' => $min, 'text' => null === $min ? '' : BW_Bridge_History::format_duration( $min ) ] );
+	}
+
+	/** Ohne JavaScript: alle geänderten (oder noch geschätzten) Dauern auf einmal speichern. */
+	public static function handle_note_minutes() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Keine Berechtigung.', 403 );
+		}
+		check_admin_referer( 'bw_bridge_note_minutes' );
+		$dur  = isset( $_POST['dur'] ) && is_array( $_POST['dur'] ) ? array_map( 'sanitize_text_field', wp_unslash( $_POST['dur'] ) ) : [];
+		$orig = isset( $_POST['orig'] ) && is_array( $_POST['orig'] ) ? array_map( 'sanitize_text_field', wp_unslash( $_POST['orig'] ) ) : [];
+		$est  = isset( $_POST['est'] ) && is_array( $_POST['est'] ) ? array_map( 'absint', wp_unslash( $_POST['est'] ) ) : [];
+		$err  = '';
+		foreach ( $dur as $id => $raw ) {
+			$id = (int) $id;
+			if ( trim( $raw ) === trim( $orig[ $id ] ?? '' ) && empty( $est[ $id ] ) ) {
+				continue;
+			}
+			$min = BW_Bridge_History::parse_duration( $raw );
+			if ( false === $min ) {
+				$err = 'Dauer „' . $raw . '“ nicht lesbar (z. B. 0:15, 1h30, 1,5h).';
+				continue;
+			}
+			$res = BW_Bridge_History::set_note_minutes( $id, $min );
+			if ( is_wp_error( $res ) ) {
+				$err = $res->get_error_message();
+			}
+		}
+		$back = isset( $_POST['back'] ) ? esc_url_raw( wp_unslash( $_POST['back'] ) ) : self::url();
+		wp_safe_redirect( add_query_arg( 'bw_note', '' === $err ? 'ok' : rawurlencode( $err ), $back ) );
 		exit;
 	}
 
@@ -169,7 +220,7 @@ final class BW_Bridge_Maintenance {
 				esc_attr( $rcpt ? 'Bericht an ' . implode( ', ', $rcpt ) . ' senden' : 'Kein Empfänger eingetragen (Einstellungen › BW WP Bridge › Wartungsprotokoll).' )
 			);
 		}
-		printf( '<a class="button button-primary" href="%s">Daten für Claude (JSON)</a></div></header>', esc_url( wp_nonce_url( add_query_arg( [ 'action' => 'bw_bridge_report_json', 'period' => $r['kind'], 'from' => 'custom' === $r['kind'] ? $r['from'] : null, 'to' => 'custom' === $r['kind'] ? $r['to'] : null ], admin_url( 'admin-post.php' ) ), 'bw_bridge_report_json' ) ) );
+		printf( '<a class="button button-primary" href="%s">Daten exportieren (JSON)</a></div></header>', esc_url( wp_nonce_url( add_query_arg( [ 'action' => 'bw_bridge_report_json', 'period' => $r['kind'], 'from' => 'custom' === $r['kind'] ? $r['from'] : null, 'to' => 'custom' === $r['kind'] ? $r['to'] : null ], admin_url( 'admin-post.php' ) ), 'bw_bridge_report_json' ) ) );
 		self::period_bar( $r, 'report' );
 		if ( $d['truncated'] ) {
 			echo '<div class="notice notice-warning inline"><p>Sehr viele Einträge in diesem Zeitraum – ausgewertet wurden die neuesten 5000.</p></div>';
@@ -189,7 +240,7 @@ final class BW_Bridge_Maintenance {
 			self::tile( 'SEO', $k['seo'], $seo_warn . ' offene Punkte in der Prüfung', 'seo', null, $seo_on ? 'bwm-seo' : 'bwm-seolog' );
 		}
 		self::tile( 'Manuelle Änderungen', $k['changes'], count( $d['sections']['changes']['objects'] ) . ' Inhalte/Routen betroffen', 'changes', null, 'bwm-changes' );
-		self::tile( 'Notizen', $k['notes'], $k['minutes'] ? 'Aufwand ' . self::hours( $k['minutes'] ) : 'ohne Zeitangabe', 'notes', null, 'bwm-notes' );
+		self::tile( 'Notizen', $k['notes'], $k['minutes'] ? self::effort_text( $k ) . ( $k['notes_without_minutes'] ? ' · ' . $k['notes_without_minutes'] . ' ohne Dauer' : '' ) : 'ohne Zeitangabe', 'notes', null, 'bwm-notes' );
 		self::tile( 'Prüfung Sicherheit', $sec_warn, $d['audit']['counts']['security']['fail'] . ' dringend, ' . $d['audit']['counts']['security']['warn'] . ' Empfehlungen', 'audit', $sec_warn ? 'warn' : 'ok', 'bwm-audit' );
 		echo '</section>';
 
@@ -279,24 +330,44 @@ final class BW_Bridge_Maintenance {
 		echo '</section>';
 
 		// Notizen
-		echo '<section class="bwm-card" id="bwm-notes"><div class="bwm-card-head"><h2>Notizen</h2><span class="bwm-muted">' . count( $d['notes'] ) . ( $k['minutes'] ? ' · Aufwand ' . esc_html( self::hours( $k['minutes'] ) ) : '' ) . '</span></div>';
+		echo '<section class="bwm-card" id="bwm-notes"><div class="bwm-card-head"><h2>Notizen</h2><span class="bwm-muted" id="bwm-notes-meta">' . esc_html( self::notes_meta( count( $d['notes'] ), $k ) ) . '</span></div>';
 		if ( $d['notes'] ) {
-			echo '<table class="bwm-table"><thead><tr><th>Datum</th><th>Bereich</th><th>Notiz</th><th class="num">Min.</th><th>Ticket</th><th>Von</th></tr></thead><tbody>';
+			$back = self::url( [ 'period' => 'custom' === $r['kind'] ? null : $r['kind'], 'from' => 'custom' === $r['kind'] ? $r['from'] : null, 'to' => 'custom' === $r['kind'] ? $r['to'] : null ] );
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="bwm-durform" id="bwm-dur" data-ajax="' . esc_url( admin_url( 'admin-ajax.php' ) ) . '" data-nonce="' . esc_attr( wp_create_nonce( 'bw_bridge_note_minutes' ) ) . '">';
+			wp_nonce_field( 'bw_bridge_note_minutes' );
+			echo '<input type="hidden" name="action" value="bw_bridge_note_minutes"><input type="hidden" name="back" value="' . esc_attr( $back ) . '">';
+			echo '<div class="bwm-scroll"><table class="bwm-table bwm-notes-table"><thead><tr><th>Datum</th><th>Bereich</th><th>Notiz</th><th class="num">Dauer</th><th>Ticket</th><th>Von</th></tr></thead><tbody>';
 			foreach ( $d['notes'] as $n ) {
-				printf( '<tr><td>%s</td><td><i class="bwm-dot is-%s"></i>%s</td><td>%s%s</td><td class="num">%s</td><td>%s</td><td>%s</td></tr>', esc_html( self::d( $n['date'] ) ), esc_attr( $n['area'] ), esc_html( self::AREA_LABELS[ $n['area'] ] ?? $n['area'] ), nl2br( esc_html( $n['text'] ) ), $n['tags'] ? ' <span class="bwm-muted">#' . esc_html( implode( ' #', $n['tags'] ) ) . '</span>' : '', esc_html( (string) ( $n['minutes'] ?? '' ) ), esc_html( (string) ( $n['ticket'] ?? '' ) ), esc_html( $n['user'] ) );
+				$has = null !== $n['minutes'];
+				$est = $has && $n['minutes_estimated'];
+				$cls = ! $has ? ' is-missing' : ( $est ? ' is-est' : '' );
+				if ( ! empty( $n['archived'] ) || $n['id'] < 1 ) {
+					$cell = sprintf( '<span class="bwm-dur-static" data-min="%s" data-est="%d">%s%s</span>', $has ? (int) $n['minutes'] : '', $est ? 1 : 0, $has ? esc_html( BW_Bridge_History::format_duration( $n['minutes'] ) ) : '–', $est ? ' <span class="bwm-est">geschätzt</span>' : '' );
+				} else {
+					$val   = $has ? BW_Bridge_History::format_duration( $n['minutes'] ) : '';
+					$label = 'Dauer der Notiz vom ' . self::d( $n['date'] );
+					$cell  = sprintf(
+						'<span class="bwm-dur"><input type="text" inputmode="text" size="5" class="bwm-dur-input" name="dur[%1$d]" value="%2$s" placeholder="–" aria-label="%3$s" data-id="%1$d" data-min="%4$s" data-est="%5$d" autocomplete="off"%6$s><input type="hidden" name="orig[%1$d]" value="%2$s"><input type="hidden" name="est[%1$d]" value="%5$d"><span class="bwm-dur-sub"><span class="bwm-est">geschätzt</span><button type="button" class="bwm-dur-ok" title="Schätzung bestätigen" aria-label="Schätzung bestätigen: %3$s">✓ bestätigen</button></span><span class="bwm-dur-msg" role="status" aria-live="polite"></span></span>',
+						(int) $n['id'], esc_attr( $val ), esc_attr( $label ), $has ? (int) $n['minutes'] : '', $est ? 1 : 0,
+						$est ? ' title="Schätzung – mit Enter oder Speichern bestätigen"' : ''
+					);
+				}
+				printf( '<tr class="bwm-note-row%s"><td>%s</td><td><i class="bwm-dot is-%s"></i>%s</td><td>%s%s</td><td class="num">%s</td><td>%s</td><td>%s</td></tr>', esc_attr( $cls ), esc_html( self::d( $n['date'] ) ), esc_attr( $n['area'] ), esc_html( self::AREA_LABELS[ $n['area'] ] ?? $n['area'] ), nl2br( esc_html( $n['text'] ) ), $n['tags'] ? ' <span class="bwm-muted">#' . esc_html( implode( ' #', $n['tags'] ) ) . '</span>' : '', $cell, esc_html( (string) ( $n['ticket'] ?? '' ) ), esc_html( $n['user'] ) );
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
+			echo '<p class="bwm-dur-actions bw-no-print"><button class="button bwm-dur-submit">Dauer speichern</button> <span class="bwm-muted">Format: 0:15, 15, 1h30, 1,5h</span></p></form>';
+			self::duration_script();
 		} else {
 			echo '<p class="bwm-muted">Noch keine Notizen in diesem Zeitraum.</p>';
 		}
 		self::note_form( $r );
 		echo '</section>';
 
-		// Prompt für Claude
-		echo '<section class="bwm-card bw-no-print"><div class="bwm-card-head"><h2>Abschlussbericht mit Claude</h2></div>';
-		echo '<p>Diesen Text in Claude Code einfügen (die Umgebung braucht die Zugangsdaten dieser Website). Ohne Zugang: „Daten für Claude (JSON)“ herunterladen und mit dem Text zusammen hochladen.</p>';
+		// Vorlage für den Abschlussbericht (Anweisung für die Agentur, eingeklappt)
+		echo '<details class="bwm-card bw-no-print bwm-prompt"><summary><strong>Vorlage für den Abschlussbericht</strong></summary>';
+		echo '<p>Diesen Text in Claude Code einfügen (die Umgebung braucht die Zugangsdaten dieser Website). Ohne Zugang: „Daten exportieren (JSON)“ herunterladen und mit dem Text zusammen hochladen.</p>';
 		printf( '<textarea readonly class="large-text code" rows="5" onfocus="this.select()">%s</textarea>', esc_textarea( self::prompt( $d ) ) );
-		echo '</section>';
+		echo '</details>';
 		echo '<p class="bwm-muted">Erstellt ' . esc_html( date_i18n( 'd.m.Y H:i' ) ) . ' · WordPress ' . esc_html( $d['versions']['wordpress'] ) . ' · PHP ' . esc_html( $d['versions']['php'] ) . ' · BW WP Bridge ' . esc_html( $d['versions']['bridge'] ) . '</p>';
 		self::back_to_top();
 	}
@@ -574,7 +645,7 @@ final class BW_Bridge_Maintenance {
 			printf( '<option value="%s"%s>%s</option>', esc_attr( $k ), selected( 'changes', $k, false ), esc_html( $label ) );
 		}
 		echo '</select></label>';
-		echo '<label>Aufwand (Minuten)<br><input type="number" name="minutes" min="0" step="5" class="small-text"></label>';
+		echo '<label>Dauer<br><input type="text" name="minutes" size="6" placeholder="z. B. 0:30" inputmode="text" autocomplete="off" title="0:15, 15, 1h30 oder 1,5h"></label>';
 		echo '<label>Ticket<br><input type="text" name="ticket" class="regular-text" style="width:10em"></label>';
 		echo '<label>Schlagworte<br><input type="text" name="tags" placeholder="kommagetrennt" style="width:12em"></label>';
 		echo '<label>Datum<br><input type="date" name="date" value="' . esc_attr( BW_Bridge_Log::local_today() ) . '"></label>';
@@ -805,6 +876,103 @@ final class BW_Bridge_Maintenance {
 		return $date ? date_i18n( 'd.m.Y', strtotime( $date ) ) : '';
 	}
 
+	/** „Aufwand 3:15 h (davon 0:45 h geschätzt)“. */
+	private static function effort_text( array $k ) {
+		return 'Aufwand ' . self::hours( $k['minutes'] ) . ( $k['minutes_estimated'] > 0 ? ' (davon ' . self::hours( $k['minutes_estimated'] ) . ' geschätzt)' : '' );
+	}
+
+	/** Kopfzeile der Notizen: Anzahl, Aufwand, ohne Dauer, geschätzt. */
+	private static function notes_meta( $count, array $k ) {
+		$parts = [ (string) $count ];
+		if ( $k['minutes'] ) {
+			$parts[] = self::effort_text( $k );
+		}
+		if ( $k['notes_without_minutes'] > 0 ) {
+			$parts[] = $k['notes_without_minutes'] . ' ohne Dauer';
+		}
+		if ( $k['notes_estimated'] > 0 ) {
+			$parts[] = $k['notes_estimated'] . ' geschätzt';
+		}
+		return implode( ' · ', $parts );
+	}
+
+	/** Speichert die Dauer per fetch(); ohne JavaScript bleibt das Formular mit Schaltfläche. */
+	private static function duration_script() {
+		?>
+<script>
+(function () {
+	var f = document.getElementById( 'bwm-dur' );
+	if ( ! f || ! window.fetch ) { return; }
+	f.classList.add( 'is-js' );
+	var hm = function ( m ) { return Math.floor( m / 60 ) + ':' + ( '0' + ( m % 60 ) ).slice( -2 ); };
+	var meta = document.getElementById( 'bwm-notes-meta' );
+	var sub = document.querySelector( '.bwm-tile.is-notes .bwm-tile-sub' );
+	var refresh = function () {
+		var sum = 0, est = 0, miss = 0, nest = 0, n = 0;
+		Array.prototype.forEach.call( f.querySelectorAll( '[data-min]' ), function ( el ) {
+			n++;
+			var v = el.getAttribute( 'data-min' );
+			if ( v === '' ) { miss++; return; }
+			sum += parseInt( v, 10 );
+			if ( el.getAttribute( 'data-est' ) === '1' ) { est += parseInt( v, 10 ); nest++; }
+		} );
+		var effort = 'Aufwand ' + hm( sum ) + ' h' + ( est > 0 ? ' (davon ' + hm( est ) + ' h geschätzt)' : '' );
+		var parts = [ String( n ) ];
+		if ( sum ) { parts.push( effort ); }
+		if ( miss ) { parts.push( miss + ' ohne Dauer' ); }
+		if ( nest ) { parts.push( nest + ' geschätzt' ); }
+		if ( meta ) { meta.textContent = parts.join( ' · ' ); }
+		if ( sub ) { sub.textContent = sum ? effort + ( miss ? ' · ' + miss + ' ohne Dauer' : '' ) : 'ohne Zeitangabe'; }
+	};
+	var show = function ( inp, text, bad ) {
+		var msg = inp.parentNode.querySelector( '.bwm-dur-msg' );
+		msg.textContent = text;
+		msg.className = 'bwm-dur-msg' + ( bad ? ' is-bad' : ' is-ok' );
+		clearTimeout( inp._t );
+		if ( ! bad ) { inp._t = setTimeout( function () { msg.textContent = ''; }, 2500 ); }
+	};
+	var save = function ( inp ) {
+		var cur = inp.value.trim(), est = inp.getAttribute( 'data-est' ) === '1';
+		var was = inp.getAttribute( 'data-min' ) === '' ? '' : hm( parseInt( inp.getAttribute( 'data-min' ), 10 ) );
+		if ( inp._busy ) { return; }
+		if ( cur === was && ! est ) { inp.parentNode.querySelector( '.bwm-dur-msg' ).textContent = ''; return; }
+		inp._busy = true;
+		var body = new FormData();
+		body.append( 'action', 'bw_bridge_note_minutes' );
+		body.append( 'nonce', f.getAttribute( 'data-nonce' ) );
+		body.append( 'id', inp.getAttribute( 'data-id' ) );
+		body.append( 'minutes', cur );
+		show( inp, 'speichert …', false );
+		fetch( f.getAttribute( 'data-ajax' ), { method: 'POST', credentials: 'same-origin', body: body } )
+			.then( function ( r ) { return r.json(); } )
+			.then( function ( j ) {
+				inp._busy = false;
+				if ( ! j || ! j.success ) { show( inp, ( j && j.data && j.data.message ) || 'Fehler beim Speichern', true ); return; }
+				var m = j.data.minutes, tr = inp.closest( 'tr' ), id = inp.getAttribute( 'data-id' );
+				inp.value = j.data.text;
+				inp.setAttribute( 'data-min', m === null ? '' : String( m ) );
+				inp.setAttribute( 'data-est', '0' );
+				inp.removeAttribute( 'title' );
+				f.querySelector( 'input[name="orig[' + id + ']"]' ).value = j.data.text;
+				f.querySelector( 'input[name="est[' + id + ']"]' ).value = '0';
+				tr.classList.remove( 'is-est' );
+				tr.classList.toggle( 'is-missing', m === null );
+				show( inp, '✓ gespeichert', false );
+				refresh();
+			} )
+			.catch( function () { inp._busy = false; show( inp, 'Fehler beim Speichern', true ); } );
+	};
+	Array.prototype.forEach.call( f.querySelectorAll( '.bwm-dur-input' ), function ( inp ) {
+		inp.addEventListener( 'change', function () { save( inp ); } );
+		inp.addEventListener( 'blur', function () { save( inp ); } );
+		inp.addEventListener( 'keydown', function ( e ) { if ( e.key === 'Enter' ) { e.preventDefault(); save( inp ); } } );
+		inp.parentNode.querySelector( '.bwm-dur-ok' ).addEventListener( 'click', function () { save( inp ); } );
+	} );
+}());
+</script>
+		<?php
+	}
+
 	private static function hours( $min ) {
 		return sprintf( '%d:%02d h', intdiv( (int) $min, 60 ), (int) $min % 60 );
 	}
@@ -919,6 +1087,27 @@ final class BW_Bridge_Maintenance {
 .bwm-table tr.lvl-warning td:first-child{box-shadow:inset 3px 0 0 var(--bwm-fail)}
 .bwm-tag{font-size:11px;background:var(--bwm-bg);border-radius:4px;padding:1px 6px;color:var(--bwm-ink-2)}
 .bwm-list{margin:0;columns:2}
+.bwm-dur{display:inline-flex;flex-direction:column;gap:3px;align-items:flex-end}
+.bwm-dur-sub{display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.bwm-notes-table th.num{width:8.5em}
+.bwm-dur-input{width:5.2em;text-align:right;font-variant-numeric:tabular-nums;padding:2px 6px;min-height:28px}
+.bwm-dur-static{white-space:nowrap}
+.bwm-est,.bwm-dur-ok,.bwm-dur-sub{display:none}
+.bwm-note-row.is-est .bwm-dur-sub{display:inline-flex}.bwm-note-row.is-est .bwm-est{display:inline;font-size:11px;color:#9a6700}
+.bwm-note-row.is-est .bwm-dur-input{border-style:dashed;border-color:#c98b00}
+.bwm-note-row.is-est .bwm-dur-ok{display:inline-block;font-size:11px;padding:1px 8px;border:1px solid #c98b00;border-radius:4px;background:#fff8e1;color:#7a5200;cursor:pointer;line-height:1.6;white-space:nowrap}
+.bwm-note-row.is-missing td{background:#fffaf0}
+.bwm-note-row.is-missing td:first-child{box-shadow:inset 3px 0 0 var(--bwm-warn)}
+.bwm-note-row.is-missing .bwm-dur-input{border-color:var(--bwm-warn)}
+.bwm-dur-msg{text-align:right;font-size:11px;color:#0a7a0a}
+.bwm-dur-msg:empty{display:none}
+.bwm-dur-msg.is-bad{color:var(--bwm-fail)}
+.bwm-durform.is-js .bwm-dur-actions{display:none}
+.bwm-dur-actions{margin:10px 0 0}
+.bwm-prompt{padding:12px 18px}
+.bwm-prompt summary{cursor:pointer}
+.bwm-prompt[open] summary{margin-bottom:8px}
+@media (max-width:700px){.bwm .bwm-scroll .bwm-notes-table{min-width:0;font-size:12px}.bwm-notes-table th,.bwm-notes-table td{padding:6px 5px}.bwm-notes-table th:nth-child(2),.bwm-notes-table td:nth-child(2),.bwm-notes-table th:nth-child(n+5),.bwm-notes-table td:nth-child(n+5){display:none}.bwm-notes-table th.num{width:6.5em}}
 .bwm-note{margin-top:12px}
 .bwm-note summary{list-style:none;display:inline-block}
 .bwm-note form{margin-top:10px;padding:12px;background:var(--bwm-bg);border-radius:8px}

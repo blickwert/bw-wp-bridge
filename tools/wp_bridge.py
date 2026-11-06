@@ -49,6 +49,8 @@ Texte, Suche, Meta, Stapel (ab Bridge 1.2):
 Wartungsprotokoll und Bericht (ab Bridge 1.7):
   wp_bridge.py history --period previous --area updates   # Einträge (period: current|previous|year|previous-year oder --from/--to)
   wp_bridge.py history-note "Kontaktformular-Empfänger umgestellt" --area changes --minutes 15 --ticket T-12
+  wp_bridge.py history-note "Plugins geprüft" --minutes 20 --estimate  # Dauer geschätzt: bleibt als Schätzung markiert
+  wp_bridge.py history-note-minutes 123 0:15               # Dauer einer Notiz setzen bzw. bestätigen (0:15, 1h30, 1,5h; "" löscht)
   wp_bridge.py report --period previous -o wartung.json  # alle Daten für den Wartungsbericht (inkl. Sicherheits-/SEO-Prüfung)
   wp_bridge.py audit                                    # Sicherheits- und SEO-Prüfung (aktueller Stand)
   wp_bridge.py scan [--start]                           # Dateiüberwachung, Integrität, Schwachstellen: Stand bzw. jetzt prüfen
@@ -424,6 +426,8 @@ def history_command(c, a):
         body = {"text": a.text, "area": a.area}
         if a.minutes is not None:
             body["minutes"] = a.minutes
+            if a.estimate:
+                body["estimated"] = True
         for k in ("ticket", "date"):
             if getattr(a, k):
                 body[k] = getattr(a, k)
@@ -431,6 +435,9 @@ def history_command(c, a):
             body["tags"] = [t.strip() for t in a.tags.split(",") if t.strip()]
         r = c.request("POST", base + "/notes", body)
         print("Notiz gespeichert (#%s)" % r.get("id"))
+    elif a.cmd == "history-note-minutes":
+        r = c.request("POST", "%s/notes/%d" % (base, a.id), {"minutes": a.duration})
+        print("Dauer gespeichert (#%s): %s" % (r.get("id"), "%d min" % r["minutes"] if r.get("minutes") is not None else "gelöscht"))
     elif a.cmd == "report":
         q = range_query(a)
         if a.no_audit:
@@ -633,7 +640,9 @@ def main():
     s.add_argument("--unexpected", action="store_true", help="nur unerwartete/verdächtige"); s.add_argument("--limit", type=int, default=100)
     s = sub.add_parser("history-note", help="Notiz ins Wartungsprotokoll schreiben"); s.add_argument("text")
     s.add_argument("--area", default="changes", choices=["updates", "security", "seo", "changes"]); s.add_argument("--minutes", type=int, help="Aufwand in Minuten")
+    s.add_argument("--estimate", action="store_true", help="Dauer ist nur geschätzt (bleibt markiert, bis sie im Backend bestätigt wird)")
     s.add_argument("--ticket"); s.add_argument("--tags", help="kommagetrennt"); s.add_argument("--date", help="JJJJ-MM-TT, zum Nachtragen (höchstens ein Jahr zurück)")
+    s = sub.add_parser("history-note-minutes", help="Dauer einer Notiz setzen bzw. bestätigen"); s.add_argument("id", type=int); s.add_argument("duration", help="z. B. 0:15, 15, 1h30, 1,5h (leer löscht)")
     s = sub.add_parser("report", help="Alle Daten für den Wartungsbericht eines Zeitraums"); add_range(s)
     s.add_argument("--no-audit", action="store_true", help="ohne Sicherheits-/SEO-Prüfung"); s.add_argument("-o", "--out")
     s = sub.add_parser("audit", help="Sicherheits- und SEO-Prüfung (aktueller Stand)"); s.add_argument("--json", dest="json_out", action="store_true")
@@ -740,7 +749,7 @@ def main():
         theme_command(c, a)
     elif a.cmd in ("plugins", "plugin-install", "plugin-update"):
         plugins_command(c, a)
-    elif a.cmd in ("history", "history-note", "report", "audit"):
+    elif a.cmd in ("history", "history-note", "history-note-minutes", "report", "audit"):
         history_command(c, a)
     elif a.cmd in ("scan", "vulns", "scan-files"):
         scan_command(c, a)

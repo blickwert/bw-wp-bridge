@@ -52,9 +52,9 @@ function data( array $over = [] ) {
 	return array_replace_recursive( [
 		'period'   => [ 'kind' => 'previous', 'from' => '2026-07-01', 'to' => '2026-09-30', 'label' => 'Q3 2026' ],
 		'site'     => [ 'name' => 'Testseite', 'url' => 'https://example.test/', 'id' => 'abc123' ],
-		'kpis'     => [ 'updates' => 7, 'installs' => 2, 'security_events' => 3, 'failed_logins' => 1234, 'changes' => 11, 'notes' => 2, 'minutes' => 135, 'claude' => 5 ],
+		'kpis'     => [ 'updates' => 7, 'installs' => 2, 'security_events' => 3, 'failed_logins' => 1234, 'changes' => 11, 'notes' => 2, 'minutes' => 135, 'minutes_estimated' => 45, 'claude' => 5 ],
 		'sections' => [ 'updates' => [ [ 'date' => '2026-07-02', 'message' => 'Plugin aktualisiert: Yoast 1 → 2' ] ] ],
-		'notes'    => [ [ 'date' => '2026-08-01', 'text' => 'Formular angepasst', 'minutes' => 45 ] ],
+		'notes'    => [ [ 'date' => '2026-08-01', 'text' => 'Formular angepasst', 'minutes' => 45, 'minutes_estimated' => true ], [ 'date' => '2026-08-02', 'text' => 'Backup geprüft', 'minutes' => 20 ] ],
 		'audit'    => [ 'counts' => [ 'security' => [ 'fail' => 1, 'warn' => 1 ], 'seo' => [ 'fail' => 0, 'warn' => 0 ] ],
 			'security' => [ [ 'status' => 'fail', 'title' => 'PHP veraltet', 'detail' => 'Version 7.4' ], [ 'status' => 'warn', 'title' => 'Debug an', 'detail' => '' ], [ 'status' => 'ok', 'title' => 'Alles gut', 'detail' => '' ] ], 'seo' => [] ],
 		'seo_analysis' => [ 'score' => 82, 'categories' => [ 'meta' => [ 'label' => 'Meta', 'score' => 90, 'fail' => 0, 'warn' => 2 ] ], 'tasks' => [ [ 'title' => 'Titel kürzen', 'status' => 'warn', 'pages' => [ 'a', 'b' ], 'site' => false ] ] ],
@@ -125,6 +125,9 @@ check( 'Ohne Empfänger: send() → WP_Error', is_wp_error( BW_Bridge_Report_Mai
 
 /* ---------- HTML ---------- */
 $h = BW_Bridge_Report_Mail::html( data(), 'https://example.test/wp-admin/tools.php?page=x&from=a' );
+check( 'Mail: neutrale Bezeichnung statt Claude', false !== strpos( $h, 'Aktionen durch den Support' ) && false === strpos( $h, 'Claude' ) );
+check( 'Mail: geschätzte Notiz „(45 min, geschätzt)“, bestätigte ohne Zusatz', false !== strpos( $h, '(45 min, geschätzt)' ) && false !== strpos( $h, '(20 min)' ) );
+check( 'Mail: Kennzahl „davon geschätzt 0:45“', false !== strpos( $h, 'davon geschätzt 0:45' ) );
 check( 'HTML: Kopf mit Zeitraum und Datum', false !== strpos( $h, 'Wartungsbericht · Testseite' ) && false !== strpos( $h, 'Q3 2026' ) && false !== strpos( $h, '01.07.2026 – 30.09.2026' ) );
 check( 'HTML: Kennzahlen (9 Updates, 1.234 Anmeldungen, 2:15 h)', false !== strpos( $h, '>9<' ) && false !== strpos( $h, '1.234' ) && false !== strpos( $h, '2:15 h' ) );
 check( 'HTML: Sicherheitsprüfung Dringend/Empfehlung ohne ok', false !== strpos( $h, 'PHP veraltet' ) && false !== strpos( $h, 'Dringend' ) && false !== strpos( $h, 'Empfehlung' ) && false === strpos( $h, 'Alles gut' ) );

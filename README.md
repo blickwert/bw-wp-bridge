@@ -44,7 +44,7 @@ Alle Routen verlangen einen angemeldeten **Administrator**. Die Anmeldung läuft
    - oder als Must-Use-Plugin: den Ordner `bw-wp-bridge/` nach `wp-content/mu-plugins/` legen und dort eine Datei
      `bw-wp-bridge-loader.php` mit dem Inhalt `<?php require WPMU_PLUGIN_DIR . '/bw-wp-bridge/bw-wp-bridge.php';` anlegen.
 2. In WordPress unter *Benutzer › Profil › Anwendungspasswörter* ein Passwort erzeugen
-   (am besten für einen eigenen Admin-Benutzer, z. B. `claude`).
+   (am besten für einen eigenen Admin-Benutzer, z. B. `support`).
 3. In der Claude-Code-Cloud-Umgebung (*Titelleiste › Umgebung › Edit*):
    - **Network access:** Domain des Dev-Servers erlauben
    - **Umgebungsvariablen:** `WP_URL`, `WP_USER`, `WP_APP_PASSWORD`,
@@ -111,7 +111,7 @@ aber nur mit dem, was für den Bericht zählt, und mit langer Aufbewahrung.
 | Manuelle Änderungen | Inhalte veröffentlicht/angelegt/bearbeitet/zurückgezogen/gelöscht (Bearbeitungen je Beitrag, Benutzer und Tag zusammengefasst), weitere Einstellungen, jeder erfolgreiche Schreibzugriff über die Bridge oder mit Anwendungspasswort |
 | Notizen | was gemacht wurde und warum, mit Bereich, Aufwand (Minuten), Ticket und Schlagworten – über `history-note` oder im Backend |
 
-Jeder Eintrag sagt, **wie** er zustande kam: `claude` (Dienstbenutzer `claude` oder dieser Client, erkennbar am
+Jeder Eintrag sagt, **wie** er zustande kam: `claude`, im Bericht „Support“ (Dienstbenutzer `support` bzw. früher `claude`, oder dieser Client, erkennbar am
 User-Agent `bw-wp-bridge-client`), `backend`, `web` (Anmeldeseite/Website), `app` (anderes Anwendungspasswort), `cron`, `cli`.
 Probeläufe (`dry_run`) und Lesezugriffe werden nicht protokolliert.
 
@@ -238,7 +238,7 @@ dazu die JSON-Datei „Daten für Claude“ als Anhang.
 Mit dem Verbindungsschlüssel verbindest du **genau eine Website** mit dem Client. Er schützt vor Verwechslungen (eine Umgebung zeigt versehentlich auf eine andere
 Website) und ist ein zweiter Faktor neben dem Anwendungspasswort.
 
-1. Einstellungen › BW WP Bridge › **Verbindungsschlüssel › „Schlüssel und Zugangsdaten erzeugen“**. Das Plugin legt dabei den Administrator-Benutzer `claude` (`claude@blickwert.at`) an, falls er fehlt, und erzeugt für ihn das Anwendungspasswort „claude-code“ (ein früheres gleichen Namens wird ersetzt) und zeigt **einmalig** einen fertigen Block mit `WP_<NAME>_URL`, `_USER`, `_APP_PASSWORD`, `_BRIDGE_KEY` und `_BRIDGE_SITE` zum Kopieren an. In der Datenbank liegt nur ein Hash des Schlüssels.
+1. Einstellungen › BW WP Bridge › **Verbindungsschlüssel › „Schlüssel und Zugangsdaten erzeugen“**. Das Plugin legt dabei den Administrator-Benutzer `support` (`support@blickwert.at`, Anzeigename „Support“; anderer Name per `define( 'BW_WP_BRIDGE_SERVICE_LOGIN', '…' )`) an, falls er fehlt, und erzeugt für ihn das Anwendungspasswort „Wartung“ (frühere Passwörter „Wartung“ oder „claude-code“ werden ersetzt). Ein vorhandener alter Dienstbenutzer `claude` wird weiter verwendet und lässt sich dort per Knopf in `support` umbenennen (danach `WP_<NAME>_USER` im Client anpassen) und zeigt **einmalig** einen fertigen Block mit `WP_<NAME>_URL`, `_USER`, `_APP_PASSWORD`, `_BRIDGE_KEY` und `_BRIDGE_SITE` zum Kopieren an. In der Datenbank liegt nur ein Hash des Schlüssels.
 2. Im Client eintragen: `WP_BRIDGE_KEY=bwk_…` (zusammen mit `WP_URL`, `WP_USER`, `WP_APP_PASSWORD`). Nicht in einen Chat einfügen.
 3. Optional die **Kennung** der Website (8 Zeichen, nicht geheim, steht auf der Einstellungsseite) als `WP_BRIDGE_SITE` eintragen: Der Client prüft dann vor jeder
    Anfrage, ob er mit der richtigen Website verbunden ist, und bricht sonst ab, bevor etwas gesendet wird.

@@ -1,7 +1,7 @@
 <?php
 /**
  * Wartungsbericht per E-Mail: am ersten Tag nach Ende eines Abrechnungszeitraums wird eine HTML-Zusammenfassung
- * samt JSON-Datei („Daten für Claude“) an die eingestellten Empfänger gesendet. Zusätzlich lässt sich ein Testbericht
+ * samt JSON-Datei („Daten exportieren“) an die eingestellten Empfänger gesendet. Zusätzlich lässt sich ein Testbericht
  * manuell auslösen (Einstellungen bzw. Wartungsprotokoll).
  *
  * - Automatischer Versand: täglicher Cron des Protokolls ruft maybe_send() auf. Beim allerersten Lauf wird nur der
@@ -90,7 +90,7 @@ final class BW_Bridge_Report_Mail {
 		);
 		printf( '<a class="button" href="%s">Testbericht jetzt senden</a>', esc_url( $test ) );
 		printf(
-			'<p class="description">Empfänger kommagetrennt. Gesendet wird am ersten Tag nach Ende des Abrechnungszeitraums (Rhythmus: %s, siehe oben) – als HTML-Zusammenfassung mit der JSON-Datei „Daten für Claude“ im Anhang. Der Testbericht enthält den laufenden Zeitraum und nutzt die gespeicherten Empfänger (erst speichern, dann testen). Letzter automatischer Versand: %s.</p>',
+			'<p class="description">Empfänger kommagetrennt. Gesendet wird am ersten Tag nach Ende des Abrechnungszeitraums (Rhythmus: %s, siehe oben) – als HTML-Zusammenfassung mit der JSON-Datei („Daten exportieren“) im Anhang. Der Testbericht enthält den laufenden Zeitraum und nutzt die gespeicherten Empfänger (erst speichern, dann testen). Letzter automatischer Versand: %s.</p>',
 			esc_html( $rh[ BW_Bridge_Log::rhythm() ] ?? '' ),
 			esc_html( $when )
 		);
@@ -297,13 +297,14 @@ final class BW_Bridge_Report_Mail {
 		// 2. Kennzahlen
 		$h .= self::h2( 'Kennzahlen' );
 		$minutes = $kv( 'minutes' );
+		$est_min = $kv( 'minutes_estimated' );
 		$rows = [
 			[ 'Updates (inkl. Neuinstallationen)', self::num( $kv( 'updates' ) + $kv( 'installs' ) ) ],
 			[ 'Sicherheitsereignisse', self::num( $kv( 'security_events' ) ) ],
 			[ 'Fehlgeschlagene Anmeldungen', self::num( $kv( 'failed_logins' ) ) ],
 			[ 'Manuelle Änderungen', self::num( $kv( 'changes' ) ) ],
-			[ 'Notizen', self::num( $kv( 'notes' ) ) . ' · Aufwand ' . intdiv( $minutes, 60 ) . ':' . sprintf( '%02d', $minutes % 60 ) . ' h' ],
-			[ 'Aktionen über Claude', self::num( $kv( 'claude' ) ) ],
+			[ 'Notizen', self::num( $kv( 'notes' ) ) . ' · Aufwand ' . intdiv( $minutes, 60 ) . ':' . sprintf( '%02d', $minutes % 60 ) . ' h' . ( $est_min > 0 ? ' · davon geschätzt ' . intdiv( $est_min, 60 ) . ':' . sprintf( '%02d', $est_min % 60 ) : '' ) ],
+			[ 'Aktionen durch den Support', self::num( $kv( 'claude' ) ) ],
 		];
 		$h .= '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse">';
 		foreach ( $rows as [ $label, $value ] ) {
@@ -407,7 +408,7 @@ final class BW_Bridge_Report_Mail {
 			$h .= self::h2( 'Notizen' ) . '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse">';
 			foreach ( $notes as $n ) {
 				$h .= '<tr><td style="padding:3px 10px 3px 0;vertical-align:top;white-space:nowrap;font-size:13px;color:#52606f">' . self::e( self::date( $n['date'] ?? '' ) ) . '</td><td style="padding:3px 0;font-size:13px;color:#0b1b33">' . self::e( $n['text'] ?? '' )
-					. ( ! empty( $n['minutes'] ) ? ' <span style="color:#52606f">(' . self::e( (int) $n['minutes'] ) . ' min)</span>' : '' ) . '</td></tr>';
+					. ( ! empty( $n['minutes'] ) ? ' <span style="color:#52606f">(' . self::e( (int) $n['minutes'] ) . ' min' . ( ! empty( $n['minutes_estimated'] ) ? ', geschätzt' : '' ) . ')</span>' : '' ) . '</td></tr>';
 			}
 			$h .= '</table>';
 		}
@@ -417,7 +418,7 @@ final class BW_Bridge_Report_Mail {
 		$v  = (array) ( $d['versions'] ?? [] );
 		$jn = 'wartung-' . ( $site['id'] ?? '' ?: 'website' ) . '-' . ( $period['from'] ?? '' ) . '_' . ( $period['to'] ?? '' ) . '.json';
 		$h .= '<p style="margin:20px 0 4px;font-size:12px;line-height:1.5;color:#52606f">WordPress ' . self::e( $v['wordpress'] ?? '' ) . ' · PHP ' . self::e( $v['php'] ?? '' ) . ' · BW WP Bridge ' . self::e( $v['bridge'] ?? '' ) . '</p>';
-		$h .= '<p style="margin:4px 0;font-size:12px;line-height:1.5;color:#52606f">Die Datei ' . self::e( $jn ) . ' im Anhang enthält alle Daten für den Abschlussbericht mit Claude (prompts/wartungsbericht.md).</p>';
+		$h .= '<p style="margin:4px 0;font-size:12px;line-height:1.5;color:#52606f">Die Datei ' . self::e( $jn ) . ' im Anhang enthält alle Daten für den Abschlussbericht.</p>';
 
 		return $h . '</td></tr></table></td></tr></table></body></html>';
 	}
