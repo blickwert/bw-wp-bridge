@@ -16,6 +16,10 @@ dazu über dieses Plugin:
 | `POST elementor/theme-builder/refresh` | Elementor Pro Theme Builder: Anzeigebedingungen aller Vorlagen neu einlesen und die aktuelle Zuordnung ausgeben (nötig, wenn eine Vorlage oder ihre Bedingung per API angelegt/gesetzt wurde) |
 | `GET/POST elementor/{id}/texts` | alle Texte einer Seite mit Widget-ID und Pfad lesen (`?q=` filtert) bzw. einzelne Texte gezielt setzen |
 | `GET elementor/{id}/backups`, `POST elementor/{id}/restore` | die letzten 10 automatischen Layout-Sicherungen auflisten bzw. eine zurückspielen |
+| `GET history`, `POST history/notes` | Wartungsprotokoll lesen (Zeitraum, Bereich, Volltext) bzw. eine Notiz schreiben (Tätigkeit, Bereich, Aufwand, Ticket) |
+| `GET history/report` | alle Daten für den Wartungsbericht eines Zeitraums: Kennzahlen, Verlauf, Updates, Sicherheit, SEO, Änderungen, Notizen, Prüfung |
+| `GET audit` | Sicherheits- und SEO-Prüfung (aktueller Stand, nur lesend) |
+| `GET/POST scan` | Dateiüberwachung, Integritätsprüfung und Schwachstellen: Stand lesen bzw. Prüfung jetzt starten |
 | `GET acf/schema` | ACF-Aufbau nur lesend: Feldgruppen mit allen Feldern, Platzierungsregeln, eigene Post Types und Taxonomien (`group` filtert nach Titel/Schlüssel) |
 | `GET search?q=…` | Seiten, Beiträge, Produkte, Post-Meta und Elementor-Texte durchsuchen (`types`, `lang`, `meta`, `limit`) |
 | `GET/POST translations/{id}` | WPML: Übersetzungen eines Beitrags lesen (`{ de: 34, en: 12 }`) bzw. den Beitrag mit `{ "translation_of": 12 }` (und optional `"language": "de"`) als Übersetzung eines anderen verbinden; verweigert (409), wenn in dieser Sprache schon eine andere Übersetzung existiert. Nur mit aktivem WPML (`status` zeigt es im Feld `wpml`); ohne WPML melden die Routen das und tun nichts |
@@ -87,6 +91,97 @@ wp_bridge.py translation-link 34 --of 12             # Beitrag 34 als Übersetzu
 wp_bridge.py meta-get 56 --prefix _shop_
 wp_bridge.py meta-set 56 --set _shop_hinweis=Text
 wp_bridge.py batch operationen.json    # {"operations":[{"method":"POST","path":"wp/v2/pages/12","body":{…}}, …]}
+```
+
+## Wartungsprotokoll und Wartungsbericht (ab 1.7)
+
+Für Wartungsverträge: Die Bridge schreibt mit, was auf der Website passiert, und liefert am Ende eines
+Abrechnungszeitraums (Quartal, Halbjahr, Jahr) die Daten für den Wartungsbericht. Es ist ein Protokoll zum
+**Nachlesen**, kein Zurücksetzen. Angelehnt an die Hooks von [Simple History](https://wordpress.org/plugins/simple-history/),
+aber nur mit dem, was für den Bericht zählt, und mit langer Aufbewahrung.
+
+**Was aufgezeichnet wird** (Bereiche wie im Bericht):
+
+| Bereich | Ereignisse |
+|---|---|
+| Updates | WordPress, Plugins und Themes aktualisiert (von → nach), installiert, aktiviert, deaktiviert, gelöscht; Übersetzungen; automatische Updates (Cron) |
+| Sicherheit | Anmeldungen, fehlgeschlagene Anmeldungen (je Tag und Benutzername zusammengefasst), Anwendungspasswörter angelegt/gelöscht/fehlgeschlagen, Benutzer angelegt/gelöscht, Rollenwechsel, Passwort zurückgesetzt, Datei-Editor im Backend, kritische Einstellungen (`siteurl`, `home`, `admin_email`, Registrierung, Standardrolle), Schreibzugriffe auf Theme-Dateien über die Bridge |
+| SEO | Indexierung (`blog_public`), Permalinks, Titel/Untertitel, Startseite |
+| Manuelle Änderungen | Inhalte veröffentlicht/angelegt/bearbeitet/zurückgezogen/gelöscht (Bearbeitungen je Beitrag, Benutzer und Tag zusammengefasst), weitere Einstellungen, jeder erfolgreiche Schreibzugriff über die Bridge oder mit Anwendungspasswort |
+| Notizen | was gemacht wurde und warum, mit Bereich, Aufwand (Minuten), Ticket und Schlagworten – über `history-note` oder im Backend |
+
+Jeder Eintrag sagt, **wie** er zustande kam: `claude` (Dienstbenutzer `claude` oder dieser Client, erkennbar am
+User-Agent `bw-wp-bridge-client`), `backend`, `web` (Anmeldeseite/Website), `app` (anderes Anwendungspasswort), `cron`, `cli`.
+Probeläufe (`dry_run`) und Lesezugriffe werden nicht protokolliert.
+
+**Backend:** *Werkzeuge › Wartungsprotokoll* zeigt den Bericht eines Zeitraums mit Kennzahlen, Aktivität je Woche/Monat als Grafik,
+„Wer und wie“, Sicherheits- und SEO-Prüfung, Updates, Sicherheit, SEO, manuellen Änderungen und Notizen, dazu ein Formular für
+Notizen, das vollständige Protokoll mit Filter, „Drucken / PDF“ und „Daten für Claude (JSON)“.
+
+**Einstellungen** (*Einstellungen › BW WP Bridge › Wartungsprotokoll*):
+
+| Einstellung | Standard | Bedeutung |
+|---|---|---|
+| Abrechnungszeitraum | Quartal | Monat, Quartal, Halbjahr oder Jahr, ab Vertragsbeginn (leer = Kalenderzeiträume). Das Vertragsjahr für die jährliche Sicherheitsanalyse rechnet ab demselben Datum |
+| Tage in der Datenbank | 365 | ältere Einträge wandern monatsweise in gzip-Dateien (JSON Lines) unter `wp-content/uploads/bw-bridge-log-<zufällig>/` (per `.htaccess` gesperrt) und werden für Berichte von dort mitgelesen |
+| Aufbewahrung gesamt | 1095 Tage | danach werden Einträge und Archivdateien gelöscht; 0 = unbegrenzt |
+
+**Datenbankfreundlich:** eine eigene Tabelle `{prefix}bw_bridge_log` mit Indizes auf Zeit und Bereich; häufige Ereignisse
+werden je Tag zu einem Eintrag mit Zähler zusammengefasst; Archivieren und Aufräumen laufen einmal täglich per Cron
+(höchstens 50 000 Einträge pro Lauf). Einmal pro Woche legt der Cron außerdem einen kompakten Schnappschuss der Prüfung ab,
+damit der Jahresbericht die Entwicklung zeigen kann.
+
+**Datenschutz:** IP-Adressen werden nur gekürzt gespeichert (IPv4 /24, IPv6 /48), bei Cron und WP-CLI gar nicht.
+Die Aufbewahrungsfrist gehört in den Wartungsvertrag bzw. den AV-Vertrag. Über die API lassen sich Einträge weder
+ändern noch löschen, nur Notizen hinzufügen. Abschalten: `define( 'BW_WP_BRIDGE_LOG_DISABLED', true );`
+Beim Löschen des Plugins wird die Tabelle entfernt; Archivdateien bleiben.
+
+**Prüfung** (`audit`): Sicherheit – WordPress-, PHP-, Plugin- und Theme-Updates, inaktive Plugins, automatische Updates,
+Administratoren, Benutzer „admin“, Anwendungspasswörter (unbenutzt seit 180 Tagen), Registrierung/Standardrolle, Datei-Editor, Debug,
+`debug.log`, HTTPS, XML-RPC, Tabellenpräfix, Website-Zustand (letzter Lauf), Bridge-Freigaben und -Schlüssel, fehlgeschlagene Anmeldungen;
+SEO – Indexierung, Permalinks, Untertitel, Website-Icon, SEO-Plugin (Yoast, Rank Math, SEOPress, AIOSEO, The SEO Framework), Sitemap,
+fehlende Meta-Beschreibungen, noindex, Bilder ohne Alternativtext, Inhalte ohne Titel. Nur günstige Abfragen, keine HTTP-Anfragen.
+
+### Dateiüberwachung und Schwachstellen-Scan
+
+Läuft täglich per Cron in Schritten (je höchstens 20 Sekunden, Filter `bw_bridge_scan_budget`; der nächste Schritt folgt nach 30 Sekunden)
+und schreibt Ergebnisse ins Wartungsprotokoll (Bereich Sicherheit) und in die Prüfung. Einzeln abschaltbar unter
+*Einstellungen › BW WP Bridge*, hart abschalten: `define( 'BW_WP_BRIDGE_SCAN_DISABLED', true );`
+
+- **Dateiänderungen:** Pfad, Größe, Änderungszeit und SHA-1 der Code-Dateien (`php`, `js`, `html`, `.htaccess`, `.user.ini` …) von Core,
+  Plugins, Themes, Must-Use-Plugins und Drop-ins/Sprachdateien sowie aller PHP-Dateien in `uploads` und sonstigen Ordnern in `wp-content`
+  (eigene Tabelle `{prefix}bw_bridge_files`). Neu gerechnet wird nur, wo sich Größe oder Zeit geändert haben. Je Bereich und Lauf ein Eintrag:
+  **erwartet**, wenn sich die Version geändert hat oder seit dem letzten Abgleich ein Update protokolliert wurde, sonst **unerwartet** (Warnung).
+  Ausgelassen: `cache`, `upgrade`, Backup-Ordner, `.git`, `node_modules`, Sicherungen der Bridge.
+- **PHP an ungewöhnlicher Stelle** (`uploads`, sonstige Ordner) wird immer gemeldet – nur gemeldet, nichts verschoben oder gelöscht.
+- **Integrität:** Core gegen die Prüfsummen von api.wordpress.org, Plugins aus dem Verzeichnis gegen downloads.wordpress.org/plugin-checksums
+  (bei Änderungen, neuer Version, sonst wöchentlich). Gemeldet werden geänderte Dateien und zusätzliche PHP-Dateien. Gekaufte Plugins
+  (nicht im Verzeichnis) und Themes werden nur auf Änderungen überwacht.
+- **Malware-Hinweise:** wenige eindeutige Muster in neuen/geänderten PHP-Dateien (`eval(base64_decode(…))`, `eval($_POST…)`,
+  `$_GET[…]($_GET…)`, `preg_replace …/e`, bekannte Webshell-Namen, sehr lange Base64-Zeichenketten). Ersetzt keinen Malware-Scanner.
+- **Schwachstellen:** Core, Plugins und Themes gegen [wpvulnerability.net](https://www.wpvulnerability.net/) (öffentlich, ohne Schlüssel;
+  bündelt CVE, Wordfence, Patchstack, WPScan u. a.; Antworten 12 Stunden zwischengespeichert). Übermittelt werden nur Slugs und die
+  WordPress-Version. Neue und behobene Schwachstellen erscheinen im Protokoll, im Wartungsbericht mit Schweregrad und Version mit der Behebung.
+  Im Verzeichnis geschlossene Plugins werden ebenfalls gemeldet.
+
+```bash
+wp_bridge.py scan                          # Stand: Dateien, Integrität, Schwachstellen
+wp_bridge.py scan --start                  # jetzt prüfen (größere Websites werden im Hintergrund fertig)
+wp_bridge.py vulns
+wp_bridge.py scan-files --period previous --unexpected
+```
+
+**Abschlussbericht:** Am Ende des Zeitraums den Prompt aus [`prompts/wartungsbericht.md`](prompts/wartungsbericht.md) verwenden
+(Kurzform steht auch auf der Wartungsseite). Claude holt mit `report` alle Daten und schreibt daraus den Bericht als Markdown
+zum Weiterverarbeiten: Zusammenfassung, durchgeführte Arbeiten, Zustand Sicherheit und SEO, Empfehlungen für die kommende Laufzeit
+und einmal im Jahr die ausführliche Sicherheitsanalyse.
+
+```bash
+wp_bridge.py history --period previous --area updates     # current | previous | year | previous-year, oder --from/--to
+wp_bridge.py history -q Kontakt --via claude
+wp_bridge.py history-note "Kontaktformular-Empfänger umgestellt" --area changes --minutes 15 --ticket T-12
+wp_bridge.py report --period previous -o wartung.json      # Daten für den Wartungsbericht
+wp_bridge.py audit                                          # Sicherheits- und SEO-Prüfung
 ```
 
 ## Verbindungsschlüssel (empfohlen)
@@ -201,7 +296,13 @@ includes/class-bw-bridge-meta.php         Post-Meta lesen/schreiben
 includes/class-bw-bridge-batch.php        Stapelaufrufe
 includes/class-bw-bridge-content-types.php  eigene Post Types und Taxonomien
 includes/class-bw-bridge-theme-files.php  Theme-Dateien lesen/schreiben, Sicherungen
+includes/class-bw-bridge-log.php          Wartungsprotokoll: Tabelle, Einträge, Archiv, Aufbewahrung, Abrechnungszeiträume
+includes/class-bw-bridge-log-wp.php       Wartungsprotokoll: WordPress-Ereignisse und REST-Schreibzugriffe aufzeichnen
+includes/class-bw-bridge-history.php      Routen history, history/notes, history/report; Berichtsdaten
+includes/class-bw-bridge-audit.php        Route audit: Sicherheits- und SEO-Prüfung, wöchentlicher Schnappschuss
+includes/class-bw-bridge-scan.php         Route scan: Dateiüberwachung, Integrität, Schwachstellen (wpvulnerability.net)
 admin/class-bw-bridge-settings.php        Einstellungsseite und Freigaben
+admin/class-bw-bridge-maintenance.php     Werkzeuge › Wartungsprotokoll (Bericht mit Grafik, Protokoll, Notizen)
 tools/wp_bridge.py                        Kommandozeilen-Client
 tests/                                    Tests (siehe unten)
 ```
@@ -234,6 +335,10 @@ Ohne WordPress-Installation, in einer simulierten Umgebung (`php tests/…`):
 - `php tests/test-elementor-texts.php`: Texte auslesen/setzen/vergleichen (atomare und klassische Widgets, Wiederholer, Fehlerfälle).
 - `php tests/test-bridge-content.php`: Sicherungen, Wiederherstellen, Probelauf, Meta, Stapel, Suche, WPML-Zuordnung
   (simulierte Umgebung, prüft u. a., dass die SQL-Platzhalter der Suche zu den Parametern passen).
+- `php tests/test-history.php`: Wartungsprotokoll (IP-Kürzung, Zeiträume, Zusammenfassen, Notizen, REST-Schreibzugriffe,
+  Archiv schreiben/lesen, Aufbewahrung, Berichtsdaten).
+- `php tests/test-scan.php`: Dateiüberwachung in einer simulierten Installation (Ersterfassung, unerwartete/erwartete Änderungen,
+  nur Zeitstempel, PHP in uploads, Malware-Muster, Integrität inkl. zusätzlicher Core-Datei, gelöschtes Plugin, Zeitbudget, Schwachstellen).
 - `php tests/registrations.php --check`: Hooks, REST-Routen, Einstellungen und Menü bleiben bei Umbauten unverändert
   (nach gewollten Änderungen `php tests/registrations.php > tests/registrations.expected.json`).
 

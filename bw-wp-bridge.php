@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: BW WP Bridge
- * Description: Erweitert die WordPress-REST-API um Elementor-Layouts (mit Textzugriff und Sicherungen), Suche, Post-Meta, Stapelaufrufe, Elementor-Kit (Global Colors/Fonts), Vorlagen-Import, CPT- und Taxonomie-Definitionen sowie (optional, im Backend freizuschalten) das Lesen und Schreiben von Theme-Dateien – für die Arbeit mit Claude Code auf Dev-/Staging-Servern.
- * Version: 1.6.0
+ * Description: Erweitert die WordPress-REST-API um Elementor-Layouts (mit Textzugriff und Sicherungen), Suche, Post-Meta, Stapelaufrufe, Elementor-Kit (Global Colors/Fonts), Vorlagen-Import, CPT- und Taxonomie-Definitionen sowie ein Wartungsprotokoll mit Berichten (Updates, Sicherheit, SEO, Änderungen), Dateiüberwachung und Schwachstellen-Scan und (optional, im Backend freizuschalten) das Lesen und Schreiben von Theme-Dateien – für die Arbeit mit Claude Code auf Dev-/Staging-Servern.
+ * Version: 1.7.0
  * Requires at least: 6.4
  * Requires PHP: 7.4
  * Author: blickwert
@@ -11,7 +11,7 @@
  * Zugriff nur für Administratoren (Capability manage_options), Authentifizierung
  * über WordPress-Anwendungspasswörter. Abschalten: define( 'BW_WP_BRIDGE_DISABLED', true );
  * Theme-Dateizugriff ist standardmäßig aus (Einstellungen › BW WP Bridge); hart abschalten:
- * define( 'BW_WP_BRIDGE_FILES_DISABLED', true );
+ * define( 'BW_WP_BRIDGE_FILES_DISABLED', true ); Wartungsprotokoll abschalten: define( 'BW_WP_BRIDGE_LOG_DISABLED', true );
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -20,7 +20,7 @@ if ( defined( 'BW_WP_BRIDGE_DISABLED' ) && BW_WP_BRIDGE_DISABLED ) {
 	return;
 }
 
-define( 'BW_WP_BRIDGE_VERSION', '1.6.0' ); // zusammen mit "Version:" oben ändern
+define( 'BW_WP_BRIDGE_VERSION', '1.7.0' ); // zusammen mit "Version:" oben ändern
 define( 'BW_WP_BRIDGE_DIR', plugin_dir_path( __FILE__ ) );
 
 // Muss früh laufen, noch vor allen Hooks (Anmeldung per Anwendungspasswort).
@@ -41,6 +41,13 @@ spl_autoload_register(
 			'BW_Bridge_Theme_Files'   => 'includes/class-bw-bridge-theme-files.php',
 			'BW_Bridge_Plugins'       => 'includes/class-bw-bridge-plugins.php',
 			'BW_Bridge_Key'           => 'includes/class-bw-bridge-key.php',
+			'BW_Bridge_Log'           => 'includes/class-bw-bridge-log.php',
+			'BW_Bridge_Log_WP'        => 'includes/class-bw-bridge-log-wp.php',
+			'BW_Bridge_History'       => 'includes/class-bw-bridge-history.php',
+			'BW_Bridge_Audit'         => 'includes/class-bw-bridge-audit.php',
+			'BW_Bridge_Scan'          => 'includes/class-bw-bridge-scan.php',
+			'BW_Bridge_Scan_Db_Store' => 'includes/class-bw-bridge-scan.php',
+			'BW_Bridge_Maintenance'   => 'admin/class-bw-bridge-maintenance.php',
 			'BW_Bridge_Settings'      => 'admin/class-bw-bridge-settings.php',
 		];
 		if ( isset( $map[ $class ] ) ) {

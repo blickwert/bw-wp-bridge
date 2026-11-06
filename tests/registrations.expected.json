@@ -2,8 +2,26 @@
     "hooks": [
         [
             "action",
+            "_core_updated_successfully",
+            "on_core_updated",
+            10
+        ],
+        [
+            "action",
+            "activated_plugin",
+            "on_plugin_activated",
+            10
+        ],
+        [
+            "action",
             "admin_init",
             "register_settings",
+            10
+        ],
+        [
+            "action",
+            "admin_menu",
+            "admin_menu",
             10
         ],
         [
@@ -26,9 +44,99 @@
         ],
         [
             "action",
+            "admin_post_bw_bridge_note",
+            "handle_note",
+            10
+        ],
+        [
+            "action",
+            "admin_post_bw_bridge_report_json",
+            "handle_json",
+            10
+        ],
+        [
+            "action",
+            "admin_post_bw_bridge_scan_start",
+            "handle_scan",
+            10
+        ],
+        [
+            "action",
+            "after_password_reset",
+            "on_password_reset",
+            10
+        ],
+        [
+            "action",
+            "application_password_failed_authentication",
+            "on_app_password_failed",
+            10
+        ],
+        [
+            "action",
+            "before_delete_post",
+            "on_post_deleted",
+            10
+        ],
+        [
+            "action",
+            "bw_bridge_log_maintenance",
+            "maintenance",
+            10
+        ],
+        [
+            "action",
+            "bw_bridge_scan_daily",
+            "cron_daily",
+            10
+        ],
+        [
+            "action",
+            "bw_bridge_scan_step",
+            "step",
+            10
+        ],
+        [
+            "action",
+            "deactivated_plugin",
+            "on_plugin_deactivated",
+            10
+        ],
+        [
+            "action",
+            "delete_user",
+            "on_delete_user",
+            10
+        ],
+        [
+            "action",
+            "deleted_plugin",
+            "on_plugin_deleted",
+            10
+        ],
+        [
+            "action",
+            "deleted_theme",
+            "on_theme_deleted",
+            10
+        ],
+        [
+            "action",
             "init",
             "maybe_flush_rewrite",
             999
+        ],
+        [
+            "action",
+            "init",
+            "maybe_install",
+            1
+        ],
+        [
+            "action",
+            "init",
+            "maybe_install",
+            2
         ],
         [
             "action",
@@ -38,8 +146,86 @@
         ],
         [
             "action",
+            "post_updated",
+            "on_post_updated",
+            10
+        ],
+        [
+            "action",
             "rest_api_init",
             "register_routes",
+            10
+        ],
+        [
+            "action",
+            "set_user_role",
+            "on_set_user_role",
+            10
+        ],
+        [
+            "action",
+            "switch_theme",
+            "on_switch_theme",
+            10
+        ],
+        [
+            "action",
+            "transition_post_status",
+            "on_post_status",
+            10
+        ],
+        [
+            "action",
+            "updated_option",
+            "on_option",
+            10
+        ],
+        [
+            "action",
+            "upgrader_process_complete",
+            "on_upgrader_complete",
+            10
+        ],
+        [
+            "action",
+            "user_register",
+            "on_user_register",
+            10
+        ],
+        [
+            "action",
+            "wp_ajax_edit-theme-plugin-file",
+            "on_file_editor",
+            1
+        ],
+        [
+            "action",
+            "wp_create_application_password",
+            "on_app_password_created",
+            10
+        ],
+        [
+            "action",
+            "wp_delete_application_password",
+            "on_app_password_deleted",
+            10
+        ],
+        [
+            "action",
+            "wp_login",
+            "on_login",
+            10
+        ],
+        [
+            "action",
+            "wp_login_failed",
+            "on_login_failed",
+            10
+        ],
+        [
+            "action",
+            "wp_logout",
+            "on_logout",
             10
         ],
         [
@@ -53,9 +239,35 @@
             "rest_pre_dispatch",
             "enforce",
             5
+        ],
+        [
+            "filter",
+            "rest_request_after_callbacks",
+            "on_rest_write",
+            99
+        ],
+        [
+            "filter",
+            "upgrader_pre_install",
+            "remember_version",
+            10
         ]
     ],
     "routes": [
+        [
+            "bw-bridge/v1/acf/schema",
+            "GET",
+            "schema",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/audit",
+            "GET",
+            "route",
+            "can_manage",
+            []
+        ],
         [
             "bw-bridge/v1/auth-check",
             "GET",
@@ -148,6 +360,51 @@
             []
         ],
         [
+            "bw-bridge/v1/history",
+            "GET",
+            "list_route",
+            "can_manage",
+            [
+                "period",
+                "from",
+                "to",
+                "area",
+                "category",
+                "level",
+                "source",
+                "via",
+                "q",
+                "limit",
+                "offset"
+            ]
+        ],
+        [
+            "bw-bridge/v1/history/notes",
+            "POST",
+            "note_route",
+            "can_manage",
+            [
+                "text",
+                "area",
+                "minutes",
+                "ticket",
+                "tags",
+                "date"
+            ]
+        ],
+        [
+            "bw-bridge/v1/history/report",
+            "GET",
+            "report_route",
+            "can_manage",
+            [
+                "period",
+                "from",
+                "to",
+                "audit"
+            ]
+        ],
+        [
             "bw-bridge/v1/meta/(?P<id>\\d+)",
             "GET",
             "get_meta",
@@ -215,6 +472,20 @@
             "bw-bridge/v1/render/(?P<id>\\d+)",
             "GET",
             "render",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/scan",
+            "GET",
+            "status_route",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/scan",
+            "POST",
+            "start_route",
             "can_manage",
             []
         ],
@@ -321,6 +592,20 @@
     "settings": [
         [
             "bw_bridge_files",
+            "bw_bridge_contract_rhythm",
+            "string",
+            "quarter",
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_contract_start",
+            "string",
+            "",
+            false
+        ],
+        [
+            "bw_bridge_files",
             "bw_bridge_files_parent",
             "boolean",
             0,
@@ -349,9 +634,37 @@
         ],
         [
             "bw_bridge_files",
+            "bw_bridge_log_db_days",
+            "integer",
+            365,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_log_keep_days",
+            "integer",
+            1095,
+            false
+        ],
+        [
+            "bw_bridge_files",
             "bw_bridge_plugins_install",
             "boolean",
             0,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_scan_files",
+            "boolean",
+            1,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_scan_vulns_on",
+            "boolean",
+            1,
             false
         ]
     ],
@@ -361,6 +674,13 @@
             "BW WP Bridge",
             "manage_options",
             "bw-wp-bridge",
+            "render_page"
+        ],
+        [
+            "Wartungsprotokoll",
+            "Wartungsprotokoll",
+            "manage_options",
+            "bw-bridge-maintenance",
             "render_page"
         ]
     ],

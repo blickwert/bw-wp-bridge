@@ -88,6 +88,9 @@ final class BW_Bridge_Settings {
 		foreach ( [ self::OPT_READ, self::OPT_WRITE, self::OPT_PARENT, self::OPT_PLUGINS, BW_Bridge_Key::OPT_ALL ] as $opt ) {
 			register_setting( self::GROUP, $opt, [ 'type' => 'boolean', 'sanitize_callback' => $bool, 'default' => 0, 'show_in_rest' => false ] );
 		}
+		if ( ! BW_Bridge_Log::disabled() ) {
+			BW_Bridge_Maintenance::register_settings( self::GROUP ); // nur registrieren, wenn die Felder auch im Formular stehen
+		}
 	}
 
 	public static function admin_menu() {
@@ -122,6 +125,9 @@ final class BW_Bridge_Settings {
 		}
 		self::checkbox_row( self::OPT_PLUGINS, 'Plugins installieren und aktualisieren', 'Plugins aus dem wordpress.org-Verzeichnis, aus einer https-ZIP-Adresse oder aus einem hochgeladenen ZIP installieren (auf Wunsch aktivieren) und Plugins aktualisieren. Braucht zusätzlich die Rechte <code>install_plugins</code> / <code>update_plugins</code>. Auflisten der Plugins ist immer möglich.' );
 		self::checkbox_row( BW_Bridge_Key::OPT_ALL, 'Schlüssel für alle REST-Anfragen', 'Den Verbindungsschlüssel nicht nur für die Bridge-Routen verlangen, sondern für jede REST-Anfrage, die per Anwendungspasswort kommt (z. B. auch andere Programme mit einem Anwendungspasswort). Wirkt nur, wenn oben ein Schlüssel eingerichtet ist.' );
+		if ( ! BW_Bridge_Log::disabled() ) {
+			BW_Bridge_Maintenance::settings_rows();
+		}
 		echo '</tbody></table>';
 		echo '<p class="description">Aktives Theme: <strong>' . esc_html( $child->get( 'Name' ) ) . '</strong> (Ordner <code>' . esc_html( $child->get_stylesheet() ) . '</code>)</p>';
 		submit_button();
