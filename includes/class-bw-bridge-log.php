@@ -378,6 +378,8 @@ final class BW_Bridge_Log {
 			] );
 		}
 		BW_Bridge_Audit::maybe_snapshot();
+		BW_Bridge_Seo::maybe_start();
+		BW_Bridge_Report_Mail::maybe_send();
 	}
 
 	/** Verschiebt Einträge älter als db_days() in Monatsdateien. Rückgabe: Anzahl verschobener Einträge. */

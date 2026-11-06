@@ -150,6 +150,7 @@ final class BW_Bridge_History {
 			$data['audit'] = BW_Bridge_Audit::run();
 		}
 		$data['scan'] = BW_Bridge_Scan::disabled() ? null : BW_Bridge_Scan::status();
+		$data['seo_analysis'] = BW_Bridge_Seo::disabled() ? null : BW_Bridge_Seo::status();
 		return $data;
 	}
 

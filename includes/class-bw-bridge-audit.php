@@ -285,6 +285,17 @@ final class BW_Bridge_Audit {
 			$out[] = self::check( 'untitled', 'warn', $untitled . ' veröffentlichte Inhalte ohne Titel' );
 		}
 		$out[] = self::check( 'content_count', 'info', $total . ' veröffentlichte Inhalte', implode( ', ', $types ) );
+
+		// SEO-Analyse der Seiten (Stand des letzten Laufs)
+		if ( ! BW_Bridge_Seo::disabled() ) {
+			$sa = BW_Bridge_Seo::status();
+			if ( null === $sa['score'] ) {
+				$out[] = self::check( 'seo_analysis', 'warn', $sa['running'] ? 'SEO-Analyse der Seiten läuft' : 'SEO-Analyse der Seiten noch nicht gelaufen', 'Läuft wöchentlich per Cron; sofort starten mit wp_bridge.py seo --start.' );
+			} else {
+				$c     = $sa['counts'];
+				$out[] = self::check( 'seo_analysis', $sa['score'] < 50 ? 'fail' : ( $sa['score'] < 80 ? 'warn' : 'ok' ), sprintf( 'SEO-Analyse: %d %% (%d Seiten)', $sa['score'], count( $sa['pages'] ) ), sprintf( '%d dringend, %d Empfehlungen, Stand %s', $c['fail'], $c['warn'], gmdate( 'd.m.Y', strtotime( $sa['finished'] . ' UTC' ) ) ), [ 'score' => $sa['score'], 'categories' => array_map( static fn( $x ) => $x['score'], $sa['categories'] ) ] );
+			}
+		}
 		return $out;
 	}
 
