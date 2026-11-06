@@ -17,6 +17,8 @@ final class BW_WP_Bridge {
 		BW_Bridge_Key::init();
 		BW_Bridge_Log::init();
 		BW_Bridge_Scan::init();
+		BW_Bridge_Seo::init();
+		BW_Bridge_Report_Mail::init();
 		BW_Bridge_Maintenance::init();
 	}
 
@@ -47,6 +49,7 @@ final class BW_WP_Bridge {
 		BW_Bridge_Plugins::register_routes();
 		BW_Bridge_History::register_routes();
 		BW_Bridge_Scan::register_routes();
+		BW_Bridge_Seo::register_routes();
 	}
 
 	public static function can_manage() {
@@ -62,7 +65,7 @@ final class BW_WP_Bridge {
 		$el = BW_Bridge_Elementor::elementor();
 		return rest_ensure_response( $info + [
 			'bridge'        => self::VERSION,
-			'features'      => [ 'elementor-texts', 'elementor-backups', 'elementor-dry-run', 'search', 'translations', 'translation-link', 'theme-builder-refresh', 'render', 'meta', 'batch', 'plugins', 'connection-key', 'acf-schema', 'history', 'audit', 'scan' ],
+			'features'      => [ 'elementor-texts', 'elementor-backups', 'elementor-dry-run', 'search', 'translations', 'translation-link', 'theme-builder-refresh', 'render', 'meta', 'batch', 'plugins', 'connection-key', 'acf-schema', 'history', 'audit', 'scan', 'seo-analysis', 'report-mail' ],
 			'wordpress'     => get_bloginfo( 'version' ),
 			'elementor'     => defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : null,
 			'elementor_pro' => defined( 'ELEMENTOR_PRO_VERSION' ) ? ELEMENTOR_PRO_VERSION : null,

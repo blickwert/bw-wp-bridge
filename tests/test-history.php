@@ -23,7 +23,7 @@ function wp_upload_dir( $a = null, $b = true ) { return [ 'basedir' => $GLOBALS[
 function wp_mkdir_p( $d ) { return is_dir( $d ) || mkdir( $d, 0777, true ); }
 function get_post( $id ) { return null; } function rest_ensure_response( $d ) { return $d; }
 class WP_Error { public $code, $msg; function __construct( $c = '', $m = '', $d = [] ) { $this->code = $c; $this->msg = $m; } function get_error_code() { return $this->code; } function get_error_message() { return $this->msg; } }
-class Req { public $m, $r, $p; function __construct( $m, $r, $p = [] ) { $this->m = $m; $this->r = $r; $this->p = $p; } function get_method() { return $this->m; } function get_route() { return $this->r; } function get_param( $k ) { return $this->p[ $k ] ?? null; } }
+class Req implements ArrayAccess { public $m, $r, $p; function offsetExists( $k ): bool { return isset( $this->p[ $k ] ); } #[\ReturnTypeWillChange] function offsetGet( $k ) { return $this->p[ $k ] ?? null; } function offsetSet( $k, $v ): void {} function offsetUnset( $k ): void {} function __construct( $m, $r, $p = [] ) { $this->m = $m; $this->r = $r; $this->p = $p; } function get_method() { return $this->m; } function get_route() { return $this->r; } function get_param( $k ) { return $this->p[ $k ] ?? null; } }
 class Resp { public $s; function __construct( $s ) { $this->s = $s; } function get_status() { return $this->s; } }
 
 require __DIR__ . '/lib-mem-wpdb.php';
@@ -100,6 +100,7 @@ check( 'Bridge-POST wird protokolliert', BW_Bridge_Log_WP::should_log_rest( new 
 check( 'Probelauf nicht', ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/bw-bridge/v1/elementor/12', [ 'dry_run' => true ] ), new Resp( 200 ) ) );
 check( 'Fehler nicht', ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/bw-bridge/v1/elementor/12' ), new Resp( 403 ) ) );
 check( 'Eigene Notiz-Route nicht', ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/bw-bridge/v1/history/notes' ), new Resp( 200 ) ) );
+check( 'Scan und SEO-Analyse starten nicht', ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/bw-bridge/v1/scan' ), new Resp( 200 ) ) && ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/bw-bridge/v1/seo' ), new Resp( 200 ) ) );
 check( 'wp/v2 ohne Anwendungspasswort nicht', ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/wp/v2/pages/5' ), new Resp( 200 ) ) );
 $GLOBALS['did']['application_password_did_authenticate'] = 1;
 check( 'wp/v2 mit Anwendungspasswort ja', BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/wp/v2/pages/5' ), new Resp( 200 ) ) );
@@ -174,6 +175,74 @@ check( 'Zeitleiste ohne System und An-/Abmeldungen', $sum === array_sum( $rep['b
 check( 'Schnappschuss erkannt', 1 === $rep['audit_snapshots']['count'] );
 $rep = BW_Bridge_History::build( [], [ 'kind' => 'year', 'from' => '2026-01-01', 'to' => '2026-12-31', 'label' => 'Jahr 2026', 'rhythm' => 'year' ] );
 check( 'Jahr in Monaten (12), leer ohne Fehler', 'month' === $rep['timeline']['unit'] && 12 === count( $rep['timeline']['buckets'] ) && 0 === array_sum( $rep['kpis'] ) );
+
+/* ---------- Dauer je Notiz ---------- */
+$pd = [ '15' => 15, '15m' => 15, '15 min' => 15, '0:15' => 15, '1:30' => 90, '1h' => 60, '1,5h' => 90, '1.5 h' => 90, '1h30' => 90, '1h 30m' => 90, '90min' => 90, ' 2 H ' => 120, '0' => 0, '168:00' => 10080 ];
+$bad_pd = [];
+foreach ( $pd as $in => $want ) { if ( BW_Bridge_History::parse_duration( (string) $in ) !== $want ) { $bad_pd[] = $in; } }
+check( 'parse_duration: alle erlaubten Schreibweisen' . ( $bad_pd ? ' (' . implode( '|', $bad_pd ) . ')' : '' ), ! $bad_pd );
+check( 'parse_duration: leer = null', null === BW_Bridge_History::parse_duration( '' ) && null === BW_Bridge_History::parse_duration( '  ' ) && null === BW_Bridge_History::parse_duration( null ) );
+check( 'parse_duration: Ganzzahl', 15 === BW_Bridge_History::parse_duration( 15 ) );
+$bad = [ 'abc', '1:75', '-5', '1h75', '15x', '168:01', '10081', '1,5', '1:2:3' ];
+$bad_ok = true; foreach ( $bad as $b ) { if ( false !== BW_Bridge_History::parse_duration( $b ) ) { $bad_ok = false; echo "  zu großzügig: $b\n"; } }
+check( 'parse_duration: ungültig oder über 7 Tage = false', $bad_ok );
+check( 'format_duration h:mm', '0:15' === BW_Bridge_History::format_duration( 15 ) && '1:30' === BW_Bridge_History::format_duration( 90 ) && '26:05' === BW_Bridge_History::format_duration( 1565 ) );
+check( 'add_note: ungültige Dauer abgelehnt', is_wp_error( BW_Bridge_History::add_note( [ 'text' => 'x', 'minutes' => 'bald' ] ) ) );
+$n2 = BW_Bridge_History::add_note( [ 'text' => 'Dauer als Text', 'minutes' => '1h30' ] );
+check( 'add_note: Dauer „1h30“ → 90, nicht geschätzt', 90 === json_decode( $GLOBALS['wpdb']->rows[ $n2 ]['details'], true )['minutes'] && ! isset( json_decode( $GLOBALS['wpdb']->rows[ $n2 ]['details'], true )['minutes_estimated'] ) );
+$n3 = BW_Bridge_History::add_note( [ 'text' => 'Ohne Dauer' ] );
+check( 'add_note: ohne Dauer kein minutes-Feld', ! isset( json_decode( $GLOBALS['wpdb']->rows[ $n3 ]['details'], true )['minutes'] ) );
+$n4 = BW_Bridge_History::add_note( [ 'text' => 'Geschätzt', 'minutes' => 20, 'estimated' => true ] );
+$d4 = json_decode( $GLOBALS['wpdb']->rows[ $n4 ]['details'], true );
+check( 'add_note: estimated markiert die Dauer als Schätzung', 20 === $d4['minutes'] && true === $d4['minutes_estimated'] );
+$n5 = BW_Bridge_History::add_note( [ 'text' => 'Schätzung ohne Dauer', 'estimated' => true ] );
+check( 'add_note: estimated ohne minutes wird ignoriert', ! isset( json_decode( $GLOBALS['wpdb']->rows[ $n5 ]['details'], true )['minutes_estimated'] ) );
+
+check( 'update_details: unbekannte ID = false', false === BW_Bridge_Log::update_details( 99999, [ 'a' => 1 ] ) );
+check( 'update_details: mischt in vorhandene Details', true === BW_Bridge_Log::update_details( $n3, [ 'ticket' => 'T-9', 'extra' => [ 'x' => 1 ] ] ) );
+$d3 = json_decode( $GLOBALS['wpdb']->rows[ $n3 ]['details'], true );
+check( 'update_details: Text bleibt, Neues dazu', 'Ohne Dauer' === $d3['text'] && 'T-9' === $d3['ticket'] && [ 'x' => 1 ] === $d3['extra'] );
+BW_Bridge_Log::update_details( $n3, [ 'extra' => null ] );
+check( 'update_details: null entfernt ein Feld', ! array_key_exists( 'extra', json_decode( $GLOBALS['wpdb']->rows[ $n3 ]['details'], true ) ) );
+
+$GLOBALS['user'] = (object) [ 'ID' => 3, 'user_login' => 'anna', 'roles' => [ 'administrator' ] ];
+check( 'set_note_minutes: setzt Dauer', true === BW_Bridge_History::set_note_minutes( $n3, 25 ) );
+$d3 = json_decode( $GLOBALS['wpdb']->rows[ $n3 ]['details'], true );
+check( 'set_note_minutes: minutes, minutes_by, minutes_at', 25 === $d3['minutes'] && 'anna' === $d3['minutes_by'] && 1 === preg_match( '/^\d{4}-\d{2}-\d{2}T/', $d3['minutes_at'] ) );
+$before = count( $GLOBALS['wpdb']->rows );
+BW_Bridge_History::set_note_minutes( $n3, 30 );
+check( 'set_note_minutes: kein zusätzlicher Protokolleintrag', $before === count( $GLOBALS['wpdb']->rows ) );
+check( 'set_note_minutes: Bestätigung entfernt minutes_estimated (auch bei gleichem Wert)', true === BW_Bridge_History::set_note_minutes( $n4, 20 ) && ! isset( json_decode( $GLOBALS['wpdb']->rows[ $n4 ]['details'], true )['minutes_estimated'] ) );
+BW_Bridge_History::set_note_minutes( $n4, 20, true );
+check( 'set_note_minutes: estimated=true setzt die Markierung', true === json_decode( $GLOBALS['wpdb']->rows[ $n4 ]['details'], true )['minutes_estimated'] );
+BW_Bridge_History::set_note_minutes( $n4, null );
+$d4 = json_decode( $GLOBALS['wpdb']->rows[ $n4 ]['details'], true );
+check( 'set_note_minutes: null löscht Dauer und Schätzung', ! isset( $d4['minutes'] ) && ! isset( $d4['minutes_estimated'] ) );
+$other = BW_Bridge_Log::add( [ 'area' => 'changes', 'category' => 'content', 'action' => 'edited', 'message' => 'Seite' ] );
+check( 'set_note_minutes: Eintrag ohne Quelle note abgelehnt', is_wp_error( BW_Bridge_History::set_note_minutes( $other, 10 ) ) && ! isset( json_decode( (string) $GLOBALS['wpdb']->rows[ $other ]['details'], true )['minutes'] ) );
+check( 'set_note_minutes: unbekannte Notiz abgelehnt', is_wp_error( BW_Bridge_History::set_note_minutes( 99999, 10 ) ) );
+check( 'set_note_minutes: negativ/zu groß abgelehnt', is_wp_error( BW_Bridge_History::set_note_minutes( $n3, -1 ) ) && is_wp_error( BW_Bridge_History::set_note_minutes( $n3, 20000 ) ) );
+BW_Bridge_History::set_note_minutes( $n3, 25 );
+$route = BW_Bridge_History::note_minutes_route( new Req( 'POST', '/x', [ 'id' => $n3, 'minutes' => '1h', 'estimated' => true ] ) );
+check( 'Route: Dauer „1h“ als Schätzung', is_array( $route ) && 60 === $route['minutes'] && true === $route['estimated'] && true === json_decode( $GLOBALS['wpdb']->rows[ $n3 ]['details'], true )['minutes_estimated'] );
+$route = BW_Bridge_History::note_minutes_route( new Req( 'POST', '/x', [ 'id' => $n3, 'minutes' => '0:45' ] ) );
+check( 'Route: ohne estimated = bestätigt', 45 === $route['minutes'] && false === $route['estimated'] && ! isset( json_decode( $GLOBALS['wpdb']->rows[ $n3 ]['details'], true )['minutes_estimated'] ) );
+check( 'Route: ungültige Dauer 400', is_wp_error( BW_Bridge_History::note_minutes_route( new Req( 'POST', '/x', [ 'id' => $n3, 'minutes' => 'viel' ] ) ) ) );
+$GLOBALS['user'] = (object) [ 'ID' => 7, 'user_login' => 'claude', 'roles' => [ 'administrator' ] ];
+
+$all = BW_Bridge_Log::query( [ 'source' => 'note', 'archive' => false, 'limit' => 100 ] )['items'];
+$rb  = BW_Bridge_History::build( $all, [ 'kind' => 'current', 'from' => gmdate( 'Y-m-d', time() - 30 * DAY_IN_SECONDS ), 'to' => gmdate( 'Y-m-d', time() + 2 * DAY_IN_SECONDS ), 'label' => 'x', 'rhythm' => 'month' ] );
+$kb  = $rb['kpis'];
+$ids = array_column( $rb['notes'], 'id' );
+check( 'build: notes[] enthalten id', in_array( $n3, $ids, true ) && ! in_array( 0, $ids, true ) );
+$byid = array_column( $rb['notes'], null, 'id' );
+check( 'build: bearbeitete Dauer fließt in notes[] ein', 45 === $byid[ $n3 ]['minutes'] && false === $byid[ $n3 ]['minutes_estimated'] && null === $byid[ $n4 ]['minutes'] );
+check( 'build: kpis.minutes = Summe der gespeicherten Werte', 15 + 90 + 45 === $kb['minutes'] );
+check( 'build: kpis.notes_without_minutes', 3 === $kb['notes_without_minutes'] ); // Nachtrag, n4 (gelöscht), n5
+BW_Bridge_History::set_note_minutes( $n4, 30, true );
+$rb = BW_Bridge_History::build( BW_Bridge_Log::query( [ 'source' => 'note', 'archive' => false, 'limit' => 100 ] )['items'], [ 'kind' => 'current', 'from' => gmdate( 'Y-m-d', time() - 30 * DAY_IN_SECONDS ), 'to' => gmdate( 'Y-m-d', time() + 2 * DAY_IN_SECONDS ), 'label' => 'x', 'rhythm' => 'month' ] );
+check( 'build: notes_estimated / minutes_estimated', 1 === $rb['kpis']['notes_estimated'] && 30 === $rb['kpis']['minutes_estimated'] && 2 === $rb['kpis']['notes_without_minutes'] && 15 + 90 + 45 + 30 === $rb['kpis']['minutes'] );
+check( 'build: archivierte Notizen sind als archived markiert', true === BW_Bridge_History::build( [ [ 'id' => 5, 'archived' => true, 'created' => '2026-10-02 08:00:00', 'area' => 'seo', 'source' => 'note', 'user_login' => 'x', 'message' => 'm', 'details' => [ 'text' => 'm', 'minutes' => 5 ] ] ], [ 'kind' => 'current', 'from' => '2026-10-01', 'to' => '2026-10-31', 'label' => 'x', 'rhythm' => 'month' ] )['notes'][0]['archived'] );
 
 /* ---------- Grafik ---------- */
 check( 'Achsen-Obergrenze rund', 4 === BW_Bridge_Maintenance::nice_max( 3 ) && 8 === BW_Bridge_Maintenance::nice_max( 7 ) && 20 === BW_Bridge_Maintenance::nice_max( 13 ) && 400 === BW_Bridge_Maintenance::nice_max( 320 ) );

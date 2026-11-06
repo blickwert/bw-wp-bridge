@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: BW WP Bridge
- * Description: Erweitert die WordPress-REST-API um Elementor-Layouts (mit Textzugriff und Sicherungen), Suche, Post-Meta, Stapelaufrufe, Elementor-Kit (Global Colors/Fonts), Vorlagen-Import, CPT- und Taxonomie-Definitionen sowie ein Wartungsprotokoll mit Berichten (Updates, Sicherheit, SEO, Änderungen), Dateiüberwachung und Schwachstellen-Scan und (optional, im Backend freizuschalten) das Lesen und Schreiben von Theme-Dateien – für die Arbeit mit Claude Code auf Dev-/Staging-Servern.
- * Version: 1.7.0
+ * Description: Erweitert die WordPress-REST-API um Elementor-Layouts (mit Textzugriff und Sicherungen), Suche, Post-Meta, Stapelaufrufe, Elementor-Kit (Global Colors/Fonts), Vorlagen-Import, CPT- und Taxonomie-Definitionen sowie ein Wartungsprotokoll mit Berichten (Updates, Sicherheit, SEO, Änderungen), Dateiüberwachung, Schwachstellen-Scan, SEO-Analyse der Seiten, automatischem Bericht per E-Mail und (optional, im Backend freizuschalten) das Lesen und Schreiben von Theme-Dateien – für die Arbeit mit Claude Code auf Dev-/Staging-Servern.
+ * Version: 1.8.0
  * Requires at least: 6.4
  * Requires PHP: 7.4
  * Author: blickwert
@@ -20,7 +20,7 @@ if ( defined( 'BW_WP_BRIDGE_DISABLED' ) && BW_WP_BRIDGE_DISABLED ) {
 	return;
 }
 
-define( 'BW_WP_BRIDGE_VERSION', '1.7.0' ); // zusammen mit "Version:" oben ändern
+define( 'BW_WP_BRIDGE_VERSION', '1.8.0' ); // zusammen mit "Version:" oben ändern
 define( 'BW_WP_BRIDGE_DIR', plugin_dir_path( __FILE__ ) );
 
 // Muss früh laufen, noch vor allen Hooks (Anmeldung per Anwendungspasswort).
@@ -47,6 +47,8 @@ spl_autoload_register(
 			'BW_Bridge_Audit'         => 'includes/class-bw-bridge-audit.php',
 			'BW_Bridge_Scan'          => 'includes/class-bw-bridge-scan.php',
 			'BW_Bridge_Scan_Db_Store' => 'includes/class-bw-bridge-scan.php',
+			'BW_Bridge_Seo'           => 'includes/class-bw-bridge-seo.php',
+			'BW_Bridge_Report_Mail'   => 'includes/class-bw-bridge-report-mail.php',
 			'BW_Bridge_Maintenance'   => 'admin/class-bw-bridge-maintenance.php',
 			'BW_Bridge_Settings'      => 'admin/class-bw-bridge-settings.php',
 		];

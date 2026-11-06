@@ -50,14 +50,38 @@
         ],
         [
             "action",
+            "admin_post_bw_bridge_note_minutes",
+            "handle_note_minutes",
+            10
+        ],
+        [
+            "action",
+            "admin_post_bw_bridge_rename_service",
+            "handle_rename",
+            10
+        ],
+        [
+            "action",
             "admin_post_bw_bridge_report_json",
             "handle_json",
             10
         ],
         [
             "action",
+            "admin_post_bw_bridge_report_send",
+            "handle_send",
+            10
+        ],
+        [
+            "action",
             "admin_post_bw_bridge_scan_start",
             "handle_scan",
+            10
+        ],
+        [
+            "action",
+            "admin_post_bw_bridge_seo_start",
+            "handle_seo",
             10
         ],
         [
@@ -93,6 +117,12 @@
         [
             "action",
             "bw_bridge_scan_step",
+            "step",
+            10
+        ],
+        [
+            "action",
+            "bw_bridge_seo_step",
             "step",
             10
         ],
@@ -190,6 +220,12 @@
             "action",
             "user_register",
             "on_user_register",
+            10
+        ],
+        [
+            "action",
+            "wp_ajax_bw_bridge_note_minutes",
+            "ajax_note_minutes",
             10
         ],
         [
@@ -387,9 +423,20 @@
                 "text",
                 "area",
                 "minutes",
+                "estimated",
                 "ticket",
                 "tags",
                 "date"
+            ]
+        ],
+        [
+            "bw-bridge/v1/history/notes/(?P<id>\\d+)",
+            "POST",
+            "note_minutes_route",
+            "can_manage",
+            [
+                "minutes",
+                "estimated"
             ]
         ],
         [
@@ -493,6 +540,20 @@
             "bw-bridge/v1/search",
             "GET",
             "search",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/seo",
+            "GET",
+            "status_route",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/seo",
+            "POST",
+            "start_route",
             "can_manage",
             []
         ],
@@ -651,6 +712,20 @@
             "bw_bridge_plugins_install",
             "boolean",
             0,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_report_mail",
+            "boolean",
+            1,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_report_to",
+            "string",
+            "maintenancereport@blickwert.at",
             false
         ],
         [

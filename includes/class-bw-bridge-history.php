@@ -3,7 +3,8 @@
  * Wartungsprotokoll über die REST-API: Einträge lesen, Notizen schreiben, Berichtsdaten für einen Zeitraum.
  *
  *   GET  history          Einträge (period | from/to, area, category, level, source, via, q, limit, offset)
- *   POST history/notes    Notiz: text, area (updates|security|seo|changes), minutes, ticket, tags, date (Y-m-d, optional)
+ *   POST history/notes    Notiz: text, area (updates|security|seo|changes), minutes (Zahl oder „1:30“, „1,5h“ …), estimated (Schätzung), ticket, tags, date (Y-m-d, optional)
+ *   POST history/notes/ID Dauer einer Notiz setzen/bestätigen: minutes (leer = löschen), estimated (Standard false = bestätigt)
  *   GET  history/report   alles für den Wartungsbericht (period | from/to, audit=0 ohne Sicherheits-/SEO-Prüfung)
  *   GET  audit            Sicherheits- und SEO-Prüfung (siehe BW_Bridge_Audit)
  *
@@ -14,7 +15,44 @@ defined( 'ABSPATH' ) || exit;
 
 final class BW_Bridge_History {
 
-	const NOTE_AREAS = [ 'updates', 'security', 'seo', 'changes' ];
+	const NOTE_AREAS  = [ 'updates', 'security', 'seo', 'changes' ];
+	const MAX_MINUTES = 10080; // 7 Tage
+
+	/**
+	 * Dauer aus Text in Minuten. Erlaubt: „15“, „15m“, „15 min“, „0:15“, „1:30“, „1h“, „1,5h“, „1.5 h“, „1h30“,
+	 * „1h 30m“, „90min“. Rückgabe: int, null bei leerer Eingabe, false bei ungültiger Eingabe oder mehr als 7 Tagen.
+	 */
+	public static function parse_duration( $s ) {
+		if ( null === $s || is_bool( $s ) ) {
+			return null;
+		}
+		if ( is_int( $s ) || is_float( $s ) ) {
+			$s = (string) $s;
+		}
+		$s = strtolower( trim( (string) $s ) );
+		if ( '' === $s ) {
+			return null;
+		}
+		$min = false;
+		if ( preg_match( '/^(\d+)$/', $s, $m ) ) {
+			$min = (int) $m[1];
+		} elseif ( preg_match( '/^(\d+)\s*(?:m|min|minute|minuten)$/', $s, $m ) ) {
+			$min = (int) $m[1];
+		} elseif ( preg_match( '/^(\d+):(\d{1,2})$/', $s, $m ) ) {
+			$min = (int) $m[2] < 60 ? (int) $m[1] * 60 + (int) $m[2] : false;
+		} elseif ( preg_match( '/^(\d+(?:[.,]\d+)?)\s*(?:h|std|stunde|stunden)$/', $s, $m ) ) {
+			$min = (int) round( (float) str_replace( ',', '.', $m[1] ) * 60 );
+		} elseif ( preg_match( '/^(\d+)\s*(?:h|std)\s*(\d{1,2})\s*(?:m|min)?$/', $s, $m ) ) {
+			$min = (int) $m[2] < 60 ? (int) $m[1] * 60 + (int) $m[2] : false;
+		}
+		return false === $min || $min > self::MAX_MINUTES ? false : $min;
+	}
+
+	/** Minuten als „h:mm“ (z. B. 15 → „0:15“). */
+	public static function format_duration( $min ) {
+		$min = max( 0, (int) $min );
+		return intdiv( $min, 60 ) . ':' . sprintf( '%02d', $min % 60 );
+	}
 
 	public static function register_routes() {
 		$admin  = [ 'BW_WP_Bridge', 'can_manage' ];
@@ -39,8 +77,16 @@ final class BW_Bridge_History {
 			'permission_callback' => $admin,
 			'args'                => [
 				'text' => [ 'type' => 'string', 'required' => true ], 'area' => [ 'type' => 'string', 'default' => 'changes' ],
-				'minutes' => [ 'type' => 'integer' ], 'ticket' => [ 'type' => 'string' ], 'tags' => [ 'type' => [ 'array', 'string' ] ],
+				'minutes' => [ 'type' => [ 'string', 'integer' ] ], 'estimated' => [ 'type' => 'boolean', 'default' => false ], 'ticket' => [ 'type' => 'string' ], 'tags' => [ 'type' => [ 'array', 'string' ] ],
 				'date' => [ 'type' => 'string' ],
+			],
+		] );
+		register_rest_route( BW_WP_Bridge::NS, '/history/notes/(?P<id>\d+)', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'note_minutes_route' ],
+			'permission_callback' => $admin,
+			'args'                => [
+				'minutes' => [ 'type' => [ 'string', 'integer' ] ], 'estimated' => [ 'type' => 'boolean', 'default' => false ],
 			],
 		] );
 		register_rest_route( BW_WP_Bridge::NS, '/history/report', [
@@ -80,12 +126,51 @@ final class BW_Bridge_History {
 		}
 		$id = self::add_note( [
 			'text' => $request['text'], 'area' => $request['area'], 'minutes' => $request['minutes'],
-			'ticket' => $request['ticket'], 'tags' => $request['tags'], 'date' => $request['date'],
+			'ticket' => $request['ticket'], 'tags' => $request['tags'], 'date' => $request['date'], 'estimated' => ! empty( $request['estimated'] ),
 		] );
 		if ( is_wp_error( $id ) ) {
 			return $id;
 		}
 		return rest_ensure_response( [ 'id' => $id, 'saved' => true ] );
+	}
+
+	public static function note_minutes_route( $request ) {
+		if ( ! BW_Bridge_Log::ready() ) {
+			return self::not_ready();
+		}
+		$min = self::parse_duration( $request['minutes'] );
+		if ( false === $min ) {
+			return new WP_Error( 'bw_bridge_note_minutes', 'Dauer nicht lesbar (z. B. 15, 0:15, 1h30, 1,5h; höchstens 7 Tage).', [ 'status' => 400 ] );
+		}
+		$est = null !== $min && ! empty( $request['estimated'] );
+		$res = self::set_note_minutes( (int) $request['id'], $min, $est );
+		if ( is_wp_error( $res ) ) {
+			return $res;
+		}
+		return rest_ensure_response( [ 'id' => (int) $request['id'], 'minutes' => $min, 'estimated' => $est, 'saved' => true ] );
+	}
+
+	/**
+	 * Dauer einer Notiz setzen (null löscht sie). Nur Notizen in der Datenbank. Ein Mensch, der die Dauer setzt,
+	 * bestätigt sie: minutes_estimated entfällt, außer $estimated ist true. Kein zusätzlicher Protokolleintrag.
+	 * Rückgabe: true oder WP_Error.
+	 */
+	public static function set_note_minutes( $id, $minutes, $estimated = false ) {
+		$row = BW_Bridge_Log::get( $id );
+		if ( ! $row || 'note' !== ( $row['source'] ?? '' ) ) {
+			return new WP_Error( 'bw_bridge_note_missing', 'Notiz nicht gefunden (archivierte Notizen lassen sich nicht ändern).', [ 'status' => 404 ] );
+		}
+		if ( null !== $minutes && ( ! is_int( $minutes ) || $minutes < 0 || $minutes > self::MAX_MINUTES ) ) {
+			return new WP_Error( 'bw_bridge_note_minutes', 'Ungültige Dauer.', [ 'status' => 400 ] );
+		}
+		$user    = function_exists( 'wp_get_current_user' ) ? wp_get_current_user() : null;
+		$changes = [
+			'minutes'           => $minutes,
+			'minutes_estimated' => null !== $minutes && $estimated ? true : null,
+			'minutes_by'        => $user && ! empty( $user->user_login ) ? (string) $user->user_login : null,
+			'minutes_at'        => gmdate( 'c' ),
+		];
+		return BW_Bridge_Log::update_details( $id, $changes ) ? true : new WP_Error( 'bw_bridge_note_failed', 'Dauer konnte nicht gespeichert werden.', [ 'status' => 500 ] );
 	}
 
 	/** Notiz speichern (REST und Backend-Formular). Rückgabe: ID oder WP_Error. */
@@ -95,6 +180,10 @@ final class BW_Bridge_History {
 			return new WP_Error( 'bw_bridge_note_empty', 'Die Notiz ist leer.', [ 'status' => 400 ] );
 		}
 		$area = in_array( $n['area'] ?? '', self::NOTE_AREAS, true ) ? $n['area'] : 'changes';
+		$min  = self::parse_duration( $n['minutes'] ?? null );
+		if ( false === $min ) {
+			return new WP_Error( 'bw_bridge_note_minutes', 'Dauer nicht lesbar (z. B. 15, 0:15, 1h30, 1,5h; höchstens 7 Tage).', [ 'status' => 400 ] );
+		}
 		$tags = $n['tags'] ?? [];
 		$tags = is_array( $tags ) ? $tags : explode( ',', (string) $tags );
 		$tags = array_values( array_filter( array_map( static fn( $t ) => sanitize_text_field( trim( (string) $t ) ), $tags ) ) );
@@ -103,7 +192,8 @@ final class BW_Bridge_History {
 			'message' => function_exists( 'mb_substr' ) ? mb_substr( $text, 0, 250 ) : substr( $text, 0, 250 ),
 			'details' => array_filter( [
 				'text'    => $text,
-				'minutes' => isset( $n['minutes'] ) && '' !== $n['minutes'] ? max( 0, (int) $n['minutes'] ) : null,
+				'minutes' => $min,
+				'minutes_estimated' => null !== $min && ! empty( $n['estimated'] ) ? true : null,
 				'ticket'  => isset( $n['ticket'] ) ? sanitize_text_field( (string) $n['ticket'] ) : null,
 				'tags'    => $tags ?: null,
 			], static fn( $v ) => null !== $v && '' !== $v ),
@@ -150,13 +240,14 @@ final class BW_Bridge_History {
 			$data['audit'] = BW_Bridge_Audit::run();
 		}
 		$data['scan'] = BW_Bridge_Scan::disabled() ? null : BW_Bridge_Scan::status();
+		$data['seo_analysis'] = BW_Bridge_Seo::disabled() ? null : BW_Bridge_Seo::status();
 		return $data;
 	}
 
 	/** Berichtsdaten aus Einträgen (reine Logik, ohne Datenbank testbar). */
 	public static function build( array $items, array $period ) {
 		$areas    = [ 'updates', 'security', 'seo', 'changes' ];
-		$kpi      = [ 'updates' => 0, 'installs' => 0, 'security_events' => 0, 'warnings' => 0, 'logins' => 0, 'failed_logins' => 0, 'seo' => 0, 'changes' => 0, 'notes' => 0, 'minutes' => 0, 'claude' => 0 ];
+		$kpi      = [ 'updates' => 0, 'installs' => 0, 'security_events' => 0, 'warnings' => 0, 'logins' => 0, 'failed_logins' => 0, 'seo' => 0, 'changes' => 0, 'notes' => 0, 'minutes' => 0, 'notes_without_minutes' => 0, 'notes_estimated' => 0, 'minutes_estimated' => 0, 'claude' => 0 ];
 		$by_via   = [];
 		$sections = array_fill_keys( $areas, [] );
 		$notes    = [];
@@ -203,8 +294,17 @@ final class BW_Bridge_History {
 
 			if ( 'note' === ( $e['source'] ?? '' ) ) {
 				$kpi['notes']++;
-				$kpi['minutes'] += (int) ( $d['minutes'] ?? 0 );
-				$notes[] = [ 'date' => $date, 'area' => $area, 'text' => $d['text'] ?? $e['message'], 'minutes' => $d['minutes'] ?? null, 'ticket' => $d['ticket'] ?? null, 'tags' => $d['tags'] ?? [], 'user' => $e['user_login'] ];
+				$has = isset( $d['minutes'] ) && null !== $d['minutes'] && '' !== $d['minutes'];
+				$est = $has && ! empty( $d['minutes_estimated'] );
+				$kpi['minutes'] += $has ? (int) $d['minutes'] : 0;
+				if ( ! $has ) {
+					$kpi['notes_without_minutes']++;
+				}
+				if ( $est ) {
+					$kpi['notes_estimated']++;
+					$kpi['minutes_estimated'] += (int) $d['minutes'];
+				}
+				$notes[] = [ 'id' => (int) ( $e['id'] ?? 0 ), 'archived' => ! empty( $e['archived'] ), 'date' => $date, 'created' => $e['created'], 'area' => $area, 'text' => $d['text'] ?? $e['message'], 'minutes' => $has ? (int) $d['minutes'] : null, 'minutes_estimated' => $est, 'ticket' => $d['ticket'] ?? null, 'tags' => $d['tags'] ?? [], 'user' => $e['user_login'] ];
 				continue;
 			}
 			$cat = $e['category'] ?? '';

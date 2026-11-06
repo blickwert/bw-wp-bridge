@@ -2,8 +2,9 @@
 /**
  * Backend: Werkzeuge › Wartungsprotokoll. Zeigt den Bericht eines Zeitraums (Kennzahlen, Aktivität als Grafik,
  * Sicherheits- und SEO-Prüfung, Updates, manuelle Änderungen, Notizen), das vollständige Protokoll und ein Formular
- * für Notizen. Daten aus BW_Bridge_History::report() – dieselben, die Claude über die REST-API bekommt.
- * Drucken bzw. als PDF speichern über den Browser; „Daten für Claude“ lädt das JSON herunter.
+ * für Notizen. Daten aus BW_Bridge_History::report() – dieselben, die der Client über die REST-API bekommt.
+ * Drucken bzw. als PDF speichern über den Browser; „Daten exportieren (JSON)“ lädt das JSON herunter.
+ * Die Dauer je Notiz lässt sich direkt in der Tabelle ändern (Ajax bzw. Formular ohne JavaScript).
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -13,15 +14,18 @@ final class BW_Bridge_Maintenance {
 	const PAGE = 'bw-bridge-maintenance';
 
 	const AREA_LABELS = [ 'updates' => 'Updates', 'security' => 'Sicherheit', 'seo' => 'SEO', 'changes' => 'Manuelle Änderungen' ];
-	const VIA_LABELS  = [ 'claude' => 'Claude', 'backend' => 'Backend', 'web' => 'Website/Anmeldeseite', 'app' => 'Anwendungspasswort', 'rest' => 'REST-API', 'cron' => 'Automatisch (Cron)', 'cli' => 'WP-CLI', '' => 'unbekannt' ];
+	const VIA_LABELS  = [ 'claude' => 'Support', 'backend' => 'Backend', 'web' => 'Website/Anmeldeseite', 'app' => 'Anwendungspasswort', 'rest' => 'REST-API', 'cron' => 'Automatisch (Cron)', 'cli' => 'WP-CLI', '' => 'unbekannt' ];
 	const STATUS      = [ 'ok' => [ '✓', 'In Ordnung' ], 'info' => [ 'i', 'Hinweis' ], 'warn' => [ '!', 'Empfehlung' ], 'fail' => [ '✕', 'Dringend' ] ];
 	const PERIODS     = [ 'current' => 'Laufender Zeitraum', 'previous' => 'Vorheriger Zeitraum', 'year' => 'Laufendes Vertragsjahr', 'previous-year' => 'Vorheriges Vertragsjahr' ];
 
 	public static function init() {
 		add_action( 'admin_menu', [ __CLASS__, 'admin_menu' ] );
 		add_action( 'admin_post_bw_bridge_note', [ __CLASS__, 'handle_note' ] );
+		add_action( 'admin_post_bw_bridge_note_minutes', [ __CLASS__, 'handle_note_minutes' ] );
+		add_action( 'wp_ajax_bw_bridge_note_minutes', [ __CLASS__, 'ajax_note_minutes' ] );
 		add_action( 'admin_post_bw_bridge_report_json', [ __CLASS__, 'handle_json' ] );
 		add_action( 'admin_post_bw_bridge_scan_start', [ __CLASS__, 'handle_scan' ] );
+		add_action( 'admin_post_bw_bridge_seo_start', [ __CLASS__, 'handle_seo' ] );
 	}
 
 	public static function admin_menu() {
@@ -52,13 +56,61 @@ final class BW_Bridge_Maintenance {
 		$r = BW_Bridge_History::add_note( [
 			'text'    => isset( $_POST['text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['text'] ) ) : '',
 			'area'    => isset( $_POST['area'] ) ? sanitize_key( wp_unslash( $_POST['area'] ) ) : 'changes',
-			'minutes' => isset( $_POST['minutes'] ) && '' !== $_POST['minutes'] ? (int) $_POST['minutes'] : null,
+			'minutes' => isset( $_POST['minutes'] ) ? sanitize_text_field( wp_unslash( $_POST['minutes'] ) ) : null, // „Dauer“; das Formfeld heißt aus Kompatibilitätsgründen weiter minutes.
 			'ticket'  => isset( $_POST['ticket'] ) ? sanitize_text_field( wp_unslash( $_POST['ticket'] ) ) : '',
 			'tags'    => isset( $_POST['tags'] ) ? sanitize_text_field( wp_unslash( $_POST['tags'] ) ) : '',
 			'date'    => ! empty( $_POST['date'] ) && sanitize_text_field( wp_unslash( $_POST['date'] ) ) !== BW_Bridge_Log::local_today() ? sanitize_text_field( wp_unslash( $_POST['date'] ) ) : null,
 		] );
 		$back = isset( $_POST['back'] ) ? esc_url_raw( wp_unslash( $_POST['back'] ) ) : self::url();
 		wp_safe_redirect( add_query_arg( 'bw_note', is_wp_error( $r ) ? rawurlencode( $r->get_error_message() ) : 'ok', $back ) );
+		exit;
+	}
+
+	/** Dauer einer Notiz per Ajax speichern (bestätigt eine Schätzung). */
+	public static function ajax_note_minutes() {
+		check_ajax_referer( 'bw_bridge_note_minutes', 'nonce' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( [ 'message' => 'Keine Berechtigung.' ], 403 );
+		}
+		$raw = isset( $_POST['minutes'] ) ? sanitize_text_field( wp_unslash( $_POST['minutes'] ) ) : '';
+		$min = BW_Bridge_History::parse_duration( $raw );
+		if ( false === $min ) {
+			wp_send_json_error( [ 'message' => 'Dauer nicht lesbar (z. B. 0:15, 1h30, 1,5h).' ] );
+		}
+		$res = BW_Bridge_History::set_note_minutes( isset( $_POST['id'] ) ? (int) $_POST['id'] : 0, $min );
+		if ( is_wp_error( $res ) ) {
+			wp_send_json_error( [ 'message' => $res->get_error_message() ] );
+		}
+		wp_send_json_success( [ 'minutes' => $min, 'text' => null === $min ? '' : BW_Bridge_History::format_duration( $min ) ] );
+	}
+
+	/** Ohne JavaScript: alle geänderten (oder noch geschätzten) Dauern auf einmal speichern. */
+	public static function handle_note_minutes() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Keine Berechtigung.', 403 );
+		}
+		check_admin_referer( 'bw_bridge_note_minutes' );
+		$dur  = isset( $_POST['dur'] ) && is_array( $_POST['dur'] ) ? array_map( 'sanitize_text_field', wp_unslash( $_POST['dur'] ) ) : [];
+		$orig = isset( $_POST['orig'] ) && is_array( $_POST['orig'] ) ? array_map( 'sanitize_text_field', wp_unslash( $_POST['orig'] ) ) : [];
+		$est  = isset( $_POST['est'] ) && is_array( $_POST['est'] ) ? array_map( 'absint', wp_unslash( $_POST['est'] ) ) : [];
+		$err  = '';
+		foreach ( $dur as $id => $raw ) {
+			$id = (int) $id;
+			if ( trim( $raw ) === trim( $orig[ $id ] ?? '' ) && empty( $est[ $id ] ) ) {
+				continue;
+			}
+			$min = BW_Bridge_History::parse_duration( $raw );
+			if ( false === $min ) {
+				$err = 'Dauer „' . $raw . '“ nicht lesbar (z. B. 0:15, 1h30, 1,5h).';
+				continue;
+			}
+			$res = BW_Bridge_History::set_note_minutes( $id, $min );
+			if ( is_wp_error( $res ) ) {
+				$err = $res->get_error_message();
+			}
+		}
+		$back = isset( $_POST['back'] ) ? esc_url_raw( wp_unslash( $_POST['back'] ) ) : self::url();
+		wp_safe_redirect( add_query_arg( 'bw_note', '' === $err ? 'ok' : rawurlencode( $err ), $back ) );
 		exit;
 	}
 
@@ -69,6 +121,18 @@ final class BW_Bridge_Maintenance {
 		check_admin_referer( 'bw_bridge_scan_start' );
 		BW_Bridge_Scan::start( true );
 		wp_safe_redirect( add_query_arg( 'bw_scan', '1', self::url() ) );
+		exit;
+	}
+
+	public static function handle_seo() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Keine Berechtigung.', 403 );
+		}
+		check_admin_referer( 'bw_bridge_seo_start' );
+		if ( ! BW_Bridge_Seo::disabled() ) {
+			BW_Bridge_Seo::start( true );
+		}
+		wp_safe_redirect( add_query_arg( 'bw_seo', '1', self::url() ) . '#bwm-seo' );
 		exit;
 	}
 
@@ -107,6 +171,9 @@ final class BW_Bridge_Maintenance {
 			$msg = sanitize_text_field( wp_unslash( $_GET['bw_note'] ) );
 			echo 'ok' === $msg ? '<div class="notice notice-success is-dismissible bw-no-print"><p>Notiz gespeichert.</p></div>' : '<div class="notice notice-error bw-no-print"><p>' . esc_html( $msg ) . '</p></div>';
 		}
+		if ( isset( $_GET['bw_mail'] ) ) {
+			echo self::mail_notice(); // phpcs:ignore WordPress.Security.EscapeOutput -- in mail_notice() escaped.
+		}
 		echo '<nav class="nav-tab-wrapper bw-no-print">';
 		foreach ( [ 'report' => 'Bericht', 'log' => 'Protokoll' ] as $k => $label ) {
 			printf( '<a href="%s" class="nav-tab%s">%s</a>', esc_url( self::url( [ 'tab' => $k, 'period' => $r['kind'] !== 'custom' ? $r['kind'] : null, 'from' => 'custom' === $r['kind'] ? $r['from'] : null, 'to' => 'custom' === $r['kind'] ? $r['to'] : null ] ) ), $tab === $k ? ' nav-tab-active' : '', esc_html( $label ) );
@@ -132,11 +199,28 @@ final class BW_Bridge_Maintenance {
 		$site = $d['site'];
 		$rh   = [ 'month' => 'Monat', 'quarter' => 'Quartal', 'half' => 'Halbjahr', 'year' => 'Jahr' ];
 
-		echo '<header class="bwm-head"><div><p class="bwm-eyebrow">Wartungsbericht · ' . esc_html( $site['name'] ) . '</p>';
+		echo '<header class="bwm-head" id="bwm-top"><div><p class="bwm-eyebrow">Wartungsbericht · ' . esc_html( $site['name'] ) . '</p>';
 		echo '<h1>' . esc_html( $d['period']['label'] ) . '</h1>';
 		echo '<p class="bwm-sub">' . esc_html( date_i18n( 'd.m.Y', strtotime( $d['period']['from'] ) ) . ' – ' . date_i18n( 'd.m.Y', strtotime( $d['period']['to'] ) ) ) . ' · ' . esc_html( $site['url'] ) . ' · Abrechnung je ' . esc_html( $rh[ $d['contract']['rhythm'] ] ?? 'Quartal' ) . ( $d['contract']['start'] ? ' ab ' . esc_html( date_i18n( 'd.m.Y', strtotime( $d['contract']['start'] ) ) ) : '' ) . '</p></div>';
 		echo '<div class="bwm-actions bw-no-print"><button type="button" class="button" onclick="window.print()">Drucken / PDF</button> ';
-		printf( '<a class="button button-primary" href="%s">Daten für Claude (JSON)</a></div></header>', esc_url( wp_nonce_url( add_query_arg( [ 'action' => 'bw_bridge_report_json', 'period' => $r['kind'], 'from' => 'custom' === $r['kind'] ? $r['from'] : null, 'to' => 'custom' === $r['kind'] ? $r['to'] : null ], admin_url( 'admin-post.php' ) ), 'bw_bridge_report_json' ) ) );
+		if ( class_exists( 'BW_Bridge_Report_Mail' ) ) {
+			$rcpt = BW_Bridge_Report_Mail::recipients();
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="bwm-mailform">';
+			wp_nonce_field( BW_Bridge_Report_Mail::ACTION );
+			printf(
+				'<input type="hidden" name="action" value="%s"><input type="hidden" name="period" value="%s"><input type="hidden" name="from" value="%s"><input type="hidden" name="to" value="%s">',
+				esc_attr( BW_Bridge_Report_Mail::ACTION ),
+				esc_attr( $r['kind'] ),
+				esc_attr( 'custom' === $r['kind'] ? $r['from'] : '' ),
+				esc_attr( 'custom' === $r['kind'] ? $r['to'] : '' )
+			);
+			printf(
+				'<button class="button"%s title="%s">Per E-Mail senden</button></form> ',
+				$rcpt ? '' : ' disabled aria-disabled="true"',
+				esc_attr( $rcpt ? 'Bericht an ' . implode( ', ', $rcpt ) . ' senden' : 'Kein Empfänger eingetragen (Einstellungen › BW WP Bridge › Wartungsprotokoll).' )
+			);
+		}
+		printf( '<a class="button button-primary" href="%s">Daten exportieren (JSON)</a></div></header>', esc_url( wp_nonce_url( add_query_arg( [ 'action' => 'bw_bridge_report_json', 'period' => $r['kind'], 'from' => 'custom' === $r['kind'] ? $r['from'] : null, 'to' => 'custom' === $r['kind'] ? $r['to'] : null ], admin_url( 'admin-post.php' ) ), 'bw_bridge_report_json' ) ) );
 		self::period_bar( $r, 'report' );
 		if ( $d['truncated'] ) {
 			echo '<div class="notice notice-warning inline"><p>Sehr viele Einträge in diesem Zeitraum – ausgewertet wurden die neuesten 5000.</p></div>';
@@ -145,13 +229,19 @@ final class BW_Bridge_Maintenance {
 		// Kennzahlen
 		$sec_warn = $d['audit']['counts']['security']['fail'] + $d['audit']['counts']['security']['warn'];
 		$seo_warn = $d['audit']['counts']['seo']['fail'] + $d['audit']['counts']['seo']['warn'];
+		$sa       = ! empty( $d['seo_analysis'] ) && ! BW_Bridge_Seo::disabled() ? $d['seo_analysis'] : null;
+		$seo_on   = null !== $sa;
 		echo '<section class="bwm-kpis">';
-		self::tile( 'Updates', $k['updates'] + $k['installs'], $k['installs'] ? $k['installs'] . ' Neuinstallation(en)' : 'Core, Plugins, Themes', 'updates' );
-		self::tile( 'Sicherheit', $k['security_events'], number_format_i18n( $k['failed_logins'] ) . ' fehlgeschlagene Anmeldungen', 'security' );
-		self::tile( 'SEO', $k['seo'], $seo_warn . ' offene Punkte in der Prüfung', 'seo' );
-		self::tile( 'Manuelle Änderungen', $k['changes'], count( $d['sections']['changes']['objects'] ) . ' Inhalte/Routen betroffen', 'changes' );
-		self::tile( 'Notizen', $k['notes'], $k['minutes'] ? 'Aufwand ' . self::hours( $k['minutes'] ) : 'ohne Zeitangabe', 'notes' );
-		self::tile( 'Prüfung Sicherheit', $sec_warn, $d['audit']['counts']['security']['fail'] . ' dringend, ' . $d['audit']['counts']['security']['warn'] . ' Empfehlungen', 'audit', $sec_warn ? 'warn' : 'ok' );
+		self::tile( 'Updates', $k['updates'] + $k['installs'], $k['installs'] ? $k['installs'] . ' Neuinstallation(en)' : 'Core, Plugins, Themes', 'updates', null, 'bwm-updates' );
+		self::tile( 'Sicherheit', $k['security_events'], number_format_i18n( $k['failed_logins'] ) . ' fehlgeschlagene Anmeldungen', 'security', null, 'bwm-security' );
+		if ( $seo_on && null !== $sa['score'] ) {
+			self::tile( 'SEO', (int) $sa['score'] . ' %', (int) $sa['counts']['fail'] . ' dringend, ' . (int) $sa['counts']['warn'] . ' Empfehlungen · ' . count( $sa['pages'] ) . ' Seiten', 'seo', null, 'bwm-seo' );
+		} else {
+			self::tile( 'SEO', $k['seo'], $seo_warn . ' offene Punkte in der Prüfung', 'seo', null, $seo_on ? 'bwm-seo' : 'bwm-seolog' );
+		}
+		self::tile( 'Manuelle Änderungen', $k['changes'], count( $d['sections']['changes']['objects'] ) . ' Inhalte/Routen betroffen', 'changes', null, 'bwm-changes' );
+		self::tile( 'Notizen', $k['notes'], $k['minutes'] ? self::effort_text( $k ) . ( $k['notes_without_minutes'] ? ' · ' . $k['notes_without_minutes'] . ' ohne Dauer' : '' ) : 'ohne Zeitangabe', 'notes', null, 'bwm-notes' );
+		self::tile( 'Prüfung Sicherheit', $sec_warn, $d['audit']['counts']['security']['fail'] . ' dringend, ' . $d['audit']['counts']['security']['warn'] . ' Empfehlungen', 'audit', $sec_warn ? 'warn' : 'ok', 'bwm-audit' );
 		echo '</section>';
 
 		// Aktivität
@@ -162,7 +252,7 @@ final class BW_Bridge_Maintenance {
 		echo '</div></section>';
 
 		// Prüfung
-		echo '<section class="bwm-grid">';
+		echo '<section class="bwm-grid" id="bwm-audit">';
 		foreach ( [ 'security' => 'Sicherheitsprüfung (aktueller Stand)', 'seo' => 'SEO-Prüfung (aktueller Stand)' ] as $key => $title ) {
 			echo '<div class="bwm-card"><div class="bwm-card-head"><h2>' . esc_html( $title ) . '</h2></div><ul class="bwm-checks">';
 			$checks = $d['audit'][ $key ];
@@ -175,18 +265,21 @@ final class BW_Bridge_Maintenance {
 		}
 		echo '</section>';
 
+		if ( $seo_on ) {
+			self::seo_card( $sa );
+		}
 		if ( ! empty( $d['scan'] ) ) {
 			self::scan_card( $d['scan'] );
 		}
 
 		// Updates
-		echo '<section class="bwm-card"><div class="bwm-card-head"><h2><i class="bwm-dot is-updates"></i>Updates</h2><span class="bwm-muted">' . count( $d['sections']['updates'] ) . ' Einträge</span></div>';
+		echo '<section class="bwm-card" id="bwm-updates"><div class="bwm-card-head"><h2><i class="bwm-dot is-updates"></i>Updates</h2><span class="bwm-muted">' . count( $d['sections']['updates'] ) . ' Einträge</span></div>';
 		self::table( $d['sections']['updates'], [ 'date' => 'Datum', 'message' => 'Was', 'via' => 'Wie', 'user' => 'Benutzer' ], 'Keine Updates in diesem Zeitraum.' );
 		echo '</section>';
 
 		// Sicherheit
 		$s = $d['sections']['security'];
-		echo '<section class="bwm-card"><div class="bwm-card-head"><h2><i class="bwm-dot is-security"></i>Sicherheit</h2></div><div class="bwm-cols">';
+		echo '<section class="bwm-card" id="bwm-security"><div class="bwm-card-head"><h2><i class="bwm-dot is-security"></i>Sicherheit</h2></div><div class="bwm-cols">';
 		echo '<div><h3>Anmeldungen</h3>';
 		if ( $s['logins'] ) {
 			echo '<table class="bwm-table"><thead><tr><th>Benutzer</th><th class="num">Anmeldungen</th><th>zuletzt</th></tr></thead><tbody>';
@@ -210,13 +303,13 @@ final class BW_Bridge_Maintenance {
 		echo '</section>';
 
 		// SEO
-		echo '<section class="bwm-card"><div class="bwm-card-head"><h2><i class="bwm-dot is-seo"></i>SEO</h2></div>';
+		echo '<section class="bwm-card" id="bwm-seolog"><div class="bwm-card-head"><h2><i class="bwm-dot is-seo"></i>SEO</h2></div>';
 		self::table( $d['sections']['seo'], [ 'date' => 'Datum', 'message' => 'Was', 'via' => 'Wie', 'user' => 'Benutzer' ], 'Keine SEO-relevanten Einstellungsänderungen. Den aktuellen Stand zeigt die SEO-Prüfung oben.' );
 		echo '</section>';
 
 		// Manuelle Änderungen
 		$c = $d['sections']['changes'];
-		echo '<section class="bwm-card"><div class="bwm-card-head"><h2><i class="bwm-dot is-changes"></i>Manuelle Änderungen</h2><span class="bwm-muted">' . (int) $c['objects_total'] . ' Inhalte/Routen</span></div>';
+		echo '<section class="bwm-card" id="bwm-changes"><div class="bwm-card-head"><h2><i class="bwm-dot is-changes"></i>Manuelle Änderungen</h2><span class="bwm-muted">' . (int) $c['objects_total'] . ' Inhalte/Routen</span></div>';
 		if ( $c['objects'] ) {
 			echo '<table class="bwm-table"><thead><tr><th>Inhalt</th><th>Art</th><th>Aktionen</th><th class="num">Anzahl</th><th>Zeitraum</th><th>Wie / wer</th></tr></thead><tbody>';
 			foreach ( array_slice( $c['objects'], 0, 40 ) as $o ) {
@@ -237,25 +330,234 @@ final class BW_Bridge_Maintenance {
 		echo '</section>';
 
 		// Notizen
-		echo '<section class="bwm-card"><div class="bwm-card-head"><h2>Notizen</h2><span class="bwm-muted">' . count( $d['notes'] ) . ( $k['minutes'] ? ' · Aufwand ' . esc_html( self::hours( $k['minutes'] ) ) : '' ) . '</span></div>';
+		echo '<section class="bwm-card" id="bwm-notes"><div class="bwm-card-head"><h2>Notizen</h2><span class="bwm-muted" id="bwm-notes-meta">' . esc_html( self::notes_meta( count( $d['notes'] ), $k ) ) . '</span></div>';
 		if ( $d['notes'] ) {
-			echo '<table class="bwm-table"><thead><tr><th>Datum</th><th>Bereich</th><th>Notiz</th><th class="num">Min.</th><th>Ticket</th><th>Von</th></tr></thead><tbody>';
+			$back = self::url( [ 'period' => 'custom' === $r['kind'] ? null : $r['kind'], 'from' => 'custom' === $r['kind'] ? $r['from'] : null, 'to' => 'custom' === $r['kind'] ? $r['to'] : null ] );
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="bwm-durform" id="bwm-dur" data-ajax="' . esc_url( admin_url( 'admin-ajax.php' ) ) . '" data-nonce="' . esc_attr( wp_create_nonce( 'bw_bridge_note_minutes' ) ) . '">';
+			wp_nonce_field( 'bw_bridge_note_minutes' );
+			echo '<input type="hidden" name="action" value="bw_bridge_note_minutes"><input type="hidden" name="back" value="' . esc_attr( $back ) . '">';
+			echo '<div class="bwm-scroll"><table class="bwm-table bwm-notes-table"><thead><tr><th>Datum</th><th>Bereich</th><th>Notiz</th><th class="num">Dauer</th><th>Ticket</th><th>Von</th></tr></thead><tbody>';
 			foreach ( $d['notes'] as $n ) {
-				printf( '<tr><td>%s</td><td><i class="bwm-dot is-%s"></i>%s</td><td>%s%s</td><td class="num">%s</td><td>%s</td><td>%s</td></tr>', esc_html( self::d( $n['date'] ) ), esc_attr( $n['area'] ), esc_html( self::AREA_LABELS[ $n['area'] ] ?? $n['area'] ), nl2br( esc_html( $n['text'] ) ), $n['tags'] ? ' <span class="bwm-muted">#' . esc_html( implode( ' #', $n['tags'] ) ) . '</span>' : '', esc_html( (string) ( $n['minutes'] ?? '' ) ), esc_html( (string) ( $n['ticket'] ?? '' ) ), esc_html( $n['user'] ) );
+				$has = null !== $n['minutes'];
+				$est = $has && $n['minutes_estimated'];
+				$cls = ! $has ? ' is-missing' : ( $est ? ' is-est' : '' );
+				if ( ! empty( $n['archived'] ) || $n['id'] < 1 ) {
+					$cell = sprintf( '<span class="bwm-dur-static" data-min="%s" data-est="%d">%s%s</span>', $has ? (int) $n['minutes'] : '', $est ? 1 : 0, $has ? esc_html( BW_Bridge_History::format_duration( $n['minutes'] ) ) : '–', $est ? ' <span class="bwm-est">geschätzt</span>' : '' );
+				} else {
+					$val   = $has ? BW_Bridge_History::format_duration( $n['minutes'] ) : '';
+					$label = 'Dauer der Notiz vom ' . self::d( $n['date'] );
+					$cell  = sprintf(
+						'<span class="bwm-dur"><input type="text" inputmode="text" size="5" class="bwm-dur-input" name="dur[%1$d]" value="%2$s" placeholder="–" aria-label="%3$s" data-id="%1$d" data-min="%4$s" data-est="%5$d" autocomplete="off"%6$s><input type="hidden" name="orig[%1$d]" value="%2$s"><input type="hidden" name="est[%1$d]" value="%5$d"><span class="bwm-dur-sub"><span class="bwm-est">geschätzt</span><button type="button" class="bwm-dur-ok" title="Schätzung bestätigen" aria-label="Schätzung bestätigen: %3$s">✓ bestätigen</button></span><span class="bwm-dur-msg" role="status" aria-live="polite"></span></span>',
+						(int) $n['id'], esc_attr( $val ), esc_attr( $label ), $has ? (int) $n['minutes'] : '', $est ? 1 : 0,
+						$est ? ' title="Schätzung – mit Enter oder Speichern bestätigen"' : ''
+					);
+				}
+				printf( '<tr class="bwm-note-row%s"><td>%s</td><td><i class="bwm-dot is-%s"></i>%s</td><td>%s%s</td><td class="num">%s</td><td>%s</td><td>%s</td></tr>', esc_attr( $cls ), esc_html( self::d( $n['date'] ) ), esc_attr( $n['area'] ), esc_html( self::AREA_LABELS[ $n['area'] ] ?? $n['area'] ), nl2br( esc_html( $n['text'] ) ), $n['tags'] ? ' <span class="bwm-muted">#' . esc_html( implode( ' #', $n['tags'] ) ) . '</span>' : '', $cell, esc_html( (string) ( $n['ticket'] ?? '' ) ), esc_html( $n['user'] ) );
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
+			echo '<p class="bwm-dur-actions bw-no-print"><button class="button bwm-dur-submit">Dauer speichern</button> <span class="bwm-muted">Format: 0:15, 15, 1h30, 1,5h</span></p></form>';
+			self::duration_script();
 		} else {
 			echo '<p class="bwm-muted">Noch keine Notizen in diesem Zeitraum.</p>';
 		}
 		self::note_form( $r );
 		echo '</section>';
 
-		// Prompt für Claude
-		echo '<section class="bwm-card bw-no-print"><div class="bwm-card-head"><h2>Abschlussbericht mit Claude</h2></div>';
-		echo '<p>Diesen Text in Claude Code einfügen (die Umgebung braucht die Zugangsdaten dieser Website). Ohne Zugang: „Daten für Claude (JSON)“ herunterladen und mit dem Text zusammen hochladen.</p>';
+		// Vorlage für den Abschlussbericht (Anweisung für die Agentur, eingeklappt)
+		echo '<details class="bwm-card bw-no-print bwm-prompt"><summary><strong>Vorlage für den Abschlussbericht</strong></summary>';
+		echo '<p>Diesen Text in Claude Code einfügen (die Umgebung braucht die Zugangsdaten dieser Website). Ohne Zugang: „Daten exportieren (JSON)“ herunterladen und mit dem Text zusammen hochladen.</p>';
 		printf( '<textarea readonly class="large-text code" rows="5" onfocus="this.select()">%s</textarea>', esc_textarea( self::prompt( $d ) ) );
-		echo '</section>';
+		echo '</details>';
 		echo '<p class="bwm-muted">Erstellt ' . esc_html( date_i18n( 'd.m.Y H:i' ) ) . ' · WordPress ' . esc_html( $d['versions']['wordpress'] ) . ' · PHP ' . esc_html( $d['versions']['php'] ) . ' · BW WP Bridge ' . esc_html( $d['versions']['bridge'] ) . '</p>';
+		self::back_to_top();
+	}
+
+	/**
+	 * „Nach oben“: erscheint, sobald die Kennzahlen aus dem Blick sind (z. B. nach dem Sprung über eine Kachel), und führt
+	 * zurück zum Kopf des Berichts. Ohne JavaScript ist der Link immer sichtbar und springt per Anker.
+	 */
+	private static function back_to_top() {
+		echo '<a href="#bwm-top" class="bwm-totop bw-no-print" aria-label="Nach oben zu den Kennzahlen"><span aria-hidden="true">↑</span> Nach oben</a>';
+		?>
+<script>
+(function () {
+	var btn = document.querySelector( '.bwm-totop' ), kpis = document.querySelector( '.bwm-kpis' );
+	if ( ! btn || ! kpis ) { return; }
+	btn.classList.add( 'is-hidden' );
+	var update = function () { btn.classList.toggle( 'is-hidden', kpis.getBoundingClientRect().bottom > 0 ); };
+	window.addEventListener( 'scroll', update, { passive: true } );
+	window.addEventListener( 'hashchange', update );
+	update();
+	btn.addEventListener( 'click', function ( e ) {
+		e.preventDefault();
+		var reduce = window.matchMedia && window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches;
+		window.scrollTo( { top: 0, behavior: reduce ? 'auto' : 'smooth' } );
+		if ( window.history && history.replaceState ) { history.replaceState( null, '', location.pathname + location.search ); }
+		var first = kpis.querySelector( 'a' );
+		if ( first ) { first.focus( { preventScroll: true } ); }
+	} );
+})();
+</script>
+		<?php
+	}
+
+	/** Ampelklasse zu einer Punktzahl: unter 50 dringend, unter 80 Empfehlung, sonst in Ordnung. */
+	private static function score_class( $score ) {
+		return $score < 50 ? 'fail' : ( $score < 80 ? 'warn' : 'ok' );
+	}
+
+	private static function plural( $n, $one, $many ) {
+		return number_format_i18n( (int) $n ) . ' ' . ( 1 === (int) $n ? $one : $many );
+	}
+
+	private static function url_path( $url ) {
+		$path = (string) wp_parse_url( (string) $url, PHP_URL_PATH );
+		$q    = (string) wp_parse_url( (string) $url, PHP_URL_QUERY );
+		return ( '' === $path ? '/' : $path ) . ( '' !== $q ? '?' . $q : '' );
+	}
+
+	/** Befundliste einer Seite oder der Website (Status, Titel, Detail). */
+	private static function seo_check_list( array $checks ) {
+		echo '<ul class="bwm-checks bwm-checks-compact">';
+		foreach ( $checks as $c ) {
+			$st = isset( self::STATUS[ $c['status'] ] ) ? $c['status'] : 'info';
+			printf( '<li class="is-%1$s"><span class="bwm-status"><b aria-hidden="true">%2$s</b> %3$s</span><span><strong>%4$s</strong>%5$s</span></li>', esc_attr( $st ), esc_html( self::STATUS[ $st ][0] ), esc_html( self::STATUS[ $st ][1] ), esc_html( $c['title'] ), ! empty( $c['detail'] ) ? '<br><span class="bwm-muted">' . esc_html( $c['detail'] ) . '</span>' : '' );
+		}
+		echo '</ul>';
+	}
+
+	/** SEO-Analyse der Seiten (Punktzahl, Kategorien, Aufgaben, Seiten, defekte Links), angelehnt an den Seobility-SEO-Check. */
+	private static function seo_card( array $sa ) {
+		$fmt   = static fn( $utc ) => $utc ? get_date_from_gmt( $utc, 'd.m.Y H:i' ) : '–';
+		$score = $sa['score'] ?? null;
+		$pages = $sa['pages'] ?? [];
+		echo '<section class="bwm-card" id="bwm-seo"><div class="bwm-card-head"><h2><i class="bwm-dot is-seo"></i>SEO-Analyse</h2><span class="bw-no-print">';
+		if ( ! empty( $sa['running'] ) ) {
+			echo '<span class="bwm-muted">läuft (' . (int) $sa['pending'] . ' Schritte offen) </span>';
+		}
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline">';
+		wp_nonce_field( 'bw_bridge_seo_start' );
+		echo '<input type="hidden" name="action" value="bw_bridge_seo_start"><button class="button">Jetzt prüfen</button></form></span></div>';
+		if ( isset( $_GET['bw_seo'] ) ) {
+			echo '<p class="bwm-muted bw-no-print">Analyse gestartet – die Seiten werden in Schritten im Hintergrund geprüft, das kann einige Minuten dauern. Seite danach neu laden.</p>';
+		}
+		if ( null === $score ) {
+			echo '<p>Die Analyse ist noch nicht gelaufen. Sie liest alle öffentlichen Seiten der Website wie eine Suchmaschine und bewertet Meta-Angaben, Seitenqualität, Seitenstruktur, Links und Serverantwort. Daraus entstehen eine Punktzahl und eine Liste konkreter Aufgaben.</p>';
+			echo '<p class="bwm-muted">Mit „Jetzt prüfen“ starten; sie läuft sonst automatisch einmal pro Woche.</p></section>';
+			return;
+		}
+		$score = max( 0, min( 100, (int) $score ) );
+		$cls   = self::score_class( $score );
+
+		// Punktzahl und Kategorien
+		echo '<div class="bwm-seo-top"><div class="bwm-ring-wrap">';
+		$r    = 52;
+		$circ = 2 * M_PI * $r;
+		printf(
+			'<svg class="bwm-ring is-%1$s" viewBox="0 0 130 130" role="img" aria-label="SEO-Punktzahl %2$d von 100 Prozent"><circle cx="65" cy="65" r="%3$d" class="track"/><circle cx="65" cy="65" r="%3$d" class="val" stroke-dasharray="%4$.2f %5$.2f" transform="rotate(-90 65 65)"/><text x="65" y="65" text-anchor="middle" dominant-baseline="central" class="num">%2$d %%</text></svg>',
+			esc_attr( $cls ),
+			$score,
+			$r,
+			$circ * $score / 100,
+			$circ
+		);
+		echo '<p class="bwm-muted bwm-ring-note">Stand ' . esc_html( $fmt( $sa['finished'] ?? null ) ) . '<br>' . esc_html( sprintf( '%s · %s geprüft', self::plural( count( $pages ), 'Seite', 'Seiten' ), self::plural( $sa['links_checked'] ?? 0, 'Link', 'Links' ) ) ) . '</p></div>';
+		echo '<ul class="bwm-bars bwm-seo-cats">';
+		foreach ( $sa['categories'] ?? [] as $cat ) {
+			if ( null === $cat['score'] ) {
+				printf( '<li><span class="bwm-bar-label">%s</span><span class="bwm-bar-track"></span><span class="bwm-bar-value">–</span></li>', esc_html( $cat['label'] ) );
+				continue;
+			}
+			$cs = max( 0, min( 100, (int) $cat['score'] ) );
+			printf(
+				'<li><span class="bwm-bar-label">%1$s</span><span class="bwm-bar-track"><span class="bwm-bar is-%2$s" style="width:%3$d%%"></span></span><span class="bwm-bar-value">%3$d %%</span><span class="bwm-bar-counts bwm-muted">%4$s, %5$s</span></li>',
+				esc_html( $cat['label'] ),
+				esc_attr( self::score_class( $cs ) ),
+				$cs,
+				esc_html( (int) $cat['fail'] . ' dringend' ),
+				esc_html( self::plural( $cat['warn'], 'Empfehlung', 'Empfehlungen' ) )
+			);
+		}
+		echo '</ul></div>';
+
+		// Aufgaben
+		$tasks = $sa['tasks'] ?? [];
+		echo '<h3>Aufgaben</h3>';
+		if ( ! $tasks ) {
+			echo '<p class="bwm-muted">Keine offenen Aufgaben.</p>';
+		} else {
+			$cats = [];
+			foreach ( $sa['categories'] ?? [] as $key => $cat ) {
+				$cats[ $key ] = $cat['label'];
+			}
+			echo '<div class="bwm-scroll"><table class="bwm-table bwm-seo-tasks"><thead><tr><th>Status</th><th>Aufgabe</th><th>Bereich</th><th>Betroffen</th></tr></thead><tbody>';
+			foreach ( $tasks as $t ) {
+				$st  = 'fail' === $t['status'] ? 'fail' : 'warn';
+				$np  = count( $t['pages'] ?? [] );
+				$aff = $np ? ( $t['site'] ?? false ? 'Website, ' : '' ) . self::plural( $np, 'Seite', 'Seiten' ) : 'Website';
+				echo '<tr class="is-' . esc_attr( $st ) . '"><td><span class="bwm-status"><b aria-hidden="true">' . esc_html( self::STATUS[ $st ][0] ) . '</b> ' . esc_html( self::STATUS[ $st ][1] ) . '</span></td><td><strong>' . esc_html( $t['title'] ) . '</strong>' . ( ! empty( $t['detail'] ) ? '<br><span class="bwm-muted">' . esc_html( $t['detail'] ) . '</span>' : '' ) . '</td><td>' . esc_html( $cats[ $t['cat'] ] ?? $t['cat'] ) . '</td><td>';
+				if ( $np ) {
+					echo '<details class="bwm-pages-list"><summary>' . esc_html( $aff ) . '</summary><ul>';
+					foreach ( $t['pages'] as $pg ) {
+						printf( '<li><a href="%s" target="_blank" rel="noopener noreferrer">%s</a></li>', esc_url( $pg['url'] ), esc_html( $pg['name'] ?: self::url_path( $pg['url'] ) ) );
+					}
+					echo '</ul></details>';
+				} else {
+					echo esc_html( $aff );
+				}
+				echo '</td></tr>';
+			}
+			echo '</tbody></table></div>';
+		}
+
+		// Seiten
+		if ( $pages ) {
+			usort( $pages, static fn( $a, $b ) => ( $a['score'] <=> $b['score'] ) ?: strcmp( (string) $a['url'], (string) $b['url'] ) );
+			echo '<h3>Seiten</h3><div class="bwm-scroll"><table class="bwm-table bwm-seo-pages"><thead><tr><th>Seite</th><th class="num">Score</th><th class="num">Antwortzeit</th><th class="num">Wörter</th><th class="num">Dringend</th><th class="num">Empfehlungen</th></tr></thead><tbody>';
+			foreach ( $pages as $pg ) {
+				$cs = self::score_class( (int) $pg['score'] );
+				printf(
+					'<tr><td><details class="bwm-page-checks"><summary><strong>%1$s</strong><br><a class="bwm-muted" href="%2$s" target="_blank" rel="noopener noreferrer">%3$s</a></summary>',
+					esc_html( $pg['name'] ?: self::url_path( $pg['url'] ) ),
+					esc_url( $pg['url'] ),
+					esc_html( self::url_path( $pg['url'] ) )
+				);
+				if ( ! empty( $pg['checks'] ) ) {
+					self::seo_check_list( $pg['checks'] );
+				} else {
+					echo '<p class="bwm-muted">Keine Auffälligkeiten.</p>';
+				}
+				printf(
+					'</details></td><td class="num"><strong class="bwm-sc-%1$s">%2$d %%</strong></td><td class="num">%3$s</td><td class="num">%4$s</td><td class="num">%5$d</td><td class="num">%6$d</td></tr>',
+					esc_attr( $cs ),
+					(int) $pg['score'],
+					esc_html( ! empty( $pg['ms'] ) ? number_format_i18n( $pg['ms'] / 1000, 2 ) . ' s' : '–' ),
+					esc_html( isset( $pg['metrics']['words'] ) ? number_format_i18n( $pg['metrics']['words'] ) : '–' ),
+					(int) $pg['fail'],
+					(int) $pg['warn']
+				);
+			}
+			echo '</tbody></table></div>';
+		}
+
+		// Defekte Links
+		$broken = $sa['broken_links'] ?? [];
+		if ( $broken ) {
+			echo '<h3>Defekte Links (' . count( $broken ) . ')</h3><div class="bwm-scroll"><table class="bwm-table"><thead><tr><th>Adresse</th><th>Antwort</th><th>Gefunden auf</th></tr></thead><tbody>';
+			foreach ( array_slice( $broken, 0, 50 ) as $b ) {
+				echo '<tr><td class="bwm-break"><code>' . esc_html( $b['url'] ) . '</code></td><td>' . esc_html( $b['code'] ? 'HTTP ' . $b['code'] : 'nicht erreichbar' ) . '</td><td>' . esc_html( self::plural( count( $b['from'] ?? [] ), 'Seite', 'Seiten' ) ) . '</td></tr>';
+			}
+			echo '</tbody></table></div>';
+		}
+
+		// Website-weite Prüfungen
+		if ( ! empty( $sa['site'] ) ) {
+			$checks = $sa['site'];
+			usort( $checks, static fn( $a, $b ) => array_search( $a['status'], [ 'fail', 'warn', 'info', 'ok' ], true ) <=> array_search( $b['status'], [ 'fail', 'warn', 'info', 'ok' ], true ) );
+			echo '<h3>Website-weite Prüfungen</h3>';
+			self::seo_check_list( $checks );
+		}
+		echo '</section>';
 	}
 
 	/** Dateiüberwachung, Integrität und Schwachstellen (aktueller Stand). */
@@ -325,7 +627,7 @@ final class BW_Bridge_Maintenance {
 		return sprintf(
 			"Erstelle den Wartungsbericht für %s (%s), Zeitraum %s (%s bis %s).\n"
 			. "Daten: wp_bridge.py report %s -o wartung.json (oder die angehängte JSON-Datei).\n"
-			. "Gehe nach prompts/wartungsbericht.md im Repo blickwert/bw-wp-bridge vor: Zusammenfassung, durchgeführte Arbeiten (Updates, Sicherheit, SEO, manuelle Änderungen, Notizen mit Aufwand), Sicherheits- und SEO-Bewertung, offene Punkte und Empfehlungen für die nächste Laufzeit%s.\n"
+			. "Gehe nach prompts/wartungsbericht.md im Repo blickwert/bw-wp-bridge vor: Zusammenfassung, durchgeführte Arbeiten (Updates, Sicherheit, SEO, manuelle Änderungen, Notizen mit Aufwand), Sicherheits- und SEO-Bewertung (die SEO-Analyse der Seiten steht im Bericht unter seo_analysis: Punktzahl, Aufgaben, Seiten), offene Punkte und Empfehlungen für die nächste Laufzeit%s.\n"
 			. "Ausgabe als Markdown zum Weiterverarbeiten; nichts auf der Website ändern.",
 			$d['site']['name'], $d['site']['url'], $d['period']['label'], $d['period']['from'], $d['period']['to'], $arg,
 			$year ? ', dazu die jährliche Sicherheitsanalyse (ausführlich, mit Vergleich zum Jahresbeginn)' : ''
@@ -343,7 +645,7 @@ final class BW_Bridge_Maintenance {
 			printf( '<option value="%s"%s>%s</option>', esc_attr( $k ), selected( 'changes', $k, false ), esc_html( $label ) );
 		}
 		echo '</select></label>';
-		echo '<label>Aufwand (Minuten)<br><input type="number" name="minutes" min="0" step="5" class="small-text"></label>';
+		echo '<label>Dauer<br><input type="text" name="minutes" size="6" placeholder="z. B. 0:30" inputmode="text" autocomplete="off" title="0:15, 15, 1h30 oder 1,5h"></label>';
 		echo '<label>Ticket<br><input type="text" name="ticket" class="regular-text" style="width:10em"></label>';
 		echo '<label>Schlagworte<br><input type="text" name="tags" placeholder="kommagetrennt" style="width:12em"></label>';
 		echo '<label>Datum<br><input type="date" name="date" value="' . esc_attr( BW_Bridge_Log::local_today() ) . '"></label>';
@@ -403,15 +705,31 @@ final class BW_Bridge_Maintenance {
 	/* Bausteine                                                           */
 	/* ------------------------------------------------------------------ */
 
-	private static function tile( $label, $value, $sub, $key, $status = null ) {
+	/** Kennzahl; $value ist eine Zahl oder ein fertiger Text (z. B. „61 %“). Mit $anchor ein Sprunglink zum Abschnitt. */
+	private static function tile( $label, $value, $sub, $key, $status = null, $anchor = '' ) {
 		printf(
-			'<div class="bwm-tile is-%1$s"><span class="bwm-tile-label">%2$s</span><span class="bwm-tile-value">%3$s</span><span class="bwm-tile-sub">%4$s%5$s</span></div>',
+			'<%1$s class="bwm-tile is-%2$s"%3$s><span class="bwm-tile-label">%4$s</span><span class="bwm-tile-value">%5$s</span><span class="bwm-tile-sub">%6$s%7$s</span></%1$s>',
+			$anchor ? 'a' : 'div',
 			esc_attr( $key ),
+			$anchor ? ' href="#' . esc_attr( $anchor ) . '"' : '',
 			esc_html( $label ),
-			esc_html( number_format_i18n( (int) $value ) ),
+			esc_html( is_string( $value ) ? $value : number_format_i18n( (int) $value ) ),
 			$status ? '<b class="bwm-status-inline is-' . esc_attr( $status ) . '" aria-hidden="true">' . esc_html( self::STATUS[ $status ][0] ) . '</b> ' : '',
 			esc_html( $sub )
 		);
+	}
+
+	/** Hinweis nach dem Versand des Berichts per E-Mail (Parameter bw_mail). */
+	private static function mail_notice() {
+		$msg = isset( $_GET['bw_mail'] ) ? sanitize_text_field( wp_unslash( $_GET['bw_mail'] ) ) : '';
+		if ( '' === $msg ) {
+			return '';
+		}
+		if ( 'ok' === $msg ) {
+			$to = class_exists( 'BW_Bridge_Report_Mail' ) ? BW_Bridge_Report_Mail::recipients() : [];
+			return '<div class="notice notice-success is-dismissible bw-no-print"><p>Bericht an ' . esc_html( $to ? implode( ', ', $to ) : 'die Empfänger' ) . ' gesendet.</p></div>';
+		}
+		return '<div class="notice notice-error bw-no-print"><p>' . esc_html( $msg ) . '</p></div>';
 	}
 
 	/** Gestapelte Säulen je Zeitabschnitt (inline SVG), mit Tooltip je Segment und Tabelle als Alternative. */
@@ -558,6 +876,103 @@ final class BW_Bridge_Maintenance {
 		return $date ? date_i18n( 'd.m.Y', strtotime( $date ) ) : '';
 	}
 
+	/** „Aufwand 3:15 h (davon 0:45 h geschätzt)“. */
+	private static function effort_text( array $k ) {
+		return 'Aufwand ' . self::hours( $k['minutes'] ) . ( $k['minutes_estimated'] > 0 ? ' (davon ' . self::hours( $k['minutes_estimated'] ) . ' geschätzt)' : '' );
+	}
+
+	/** Kopfzeile der Notizen: Anzahl, Aufwand, ohne Dauer, geschätzt. */
+	private static function notes_meta( $count, array $k ) {
+		$parts = [ (string) $count ];
+		if ( $k['minutes'] ) {
+			$parts[] = self::effort_text( $k );
+		}
+		if ( $k['notes_without_minutes'] > 0 ) {
+			$parts[] = $k['notes_without_minutes'] . ' ohne Dauer';
+		}
+		if ( $k['notes_estimated'] > 0 ) {
+			$parts[] = $k['notes_estimated'] . ' geschätzt';
+		}
+		return implode( ' · ', $parts );
+	}
+
+	/** Speichert die Dauer per fetch(); ohne JavaScript bleibt das Formular mit Schaltfläche. */
+	private static function duration_script() {
+		?>
+<script>
+(function () {
+	var f = document.getElementById( 'bwm-dur' );
+	if ( ! f || ! window.fetch ) { return; }
+	f.classList.add( 'is-js' );
+	var hm = function ( m ) { return Math.floor( m / 60 ) + ':' + ( '0' + ( m % 60 ) ).slice( -2 ); };
+	var meta = document.getElementById( 'bwm-notes-meta' );
+	var sub = document.querySelector( '.bwm-tile.is-notes .bwm-tile-sub' );
+	var refresh = function () {
+		var sum = 0, est = 0, miss = 0, nest = 0, n = 0;
+		Array.prototype.forEach.call( f.querySelectorAll( '[data-min]' ), function ( el ) {
+			n++;
+			var v = el.getAttribute( 'data-min' );
+			if ( v === '' ) { miss++; return; }
+			sum += parseInt( v, 10 );
+			if ( el.getAttribute( 'data-est' ) === '1' ) { est += parseInt( v, 10 ); nest++; }
+		} );
+		var effort = 'Aufwand ' + hm( sum ) + ' h' + ( est > 0 ? ' (davon ' + hm( est ) + ' h geschätzt)' : '' );
+		var parts = [ String( n ) ];
+		if ( sum ) { parts.push( effort ); }
+		if ( miss ) { parts.push( miss + ' ohne Dauer' ); }
+		if ( nest ) { parts.push( nest + ' geschätzt' ); }
+		if ( meta ) { meta.textContent = parts.join( ' · ' ); }
+		if ( sub ) { sub.textContent = sum ? effort + ( miss ? ' · ' + miss + ' ohne Dauer' : '' ) : 'ohne Zeitangabe'; }
+	};
+	var show = function ( inp, text, bad ) {
+		var msg = inp.parentNode.querySelector( '.bwm-dur-msg' );
+		msg.textContent = text;
+		msg.className = 'bwm-dur-msg' + ( bad ? ' is-bad' : ' is-ok' );
+		clearTimeout( inp._t );
+		if ( ! bad ) { inp._t = setTimeout( function () { msg.textContent = ''; }, 2500 ); }
+	};
+	var save = function ( inp ) {
+		var cur = inp.value.trim(), est = inp.getAttribute( 'data-est' ) === '1';
+		var was = inp.getAttribute( 'data-min' ) === '' ? '' : hm( parseInt( inp.getAttribute( 'data-min' ), 10 ) );
+		if ( inp._busy ) { return; }
+		if ( cur === was && ! est ) { inp.parentNode.querySelector( '.bwm-dur-msg' ).textContent = ''; return; }
+		inp._busy = true;
+		var body = new FormData();
+		body.append( 'action', 'bw_bridge_note_minutes' );
+		body.append( 'nonce', f.getAttribute( 'data-nonce' ) );
+		body.append( 'id', inp.getAttribute( 'data-id' ) );
+		body.append( 'minutes', cur );
+		show( inp, 'speichert …', false );
+		fetch( f.getAttribute( 'data-ajax' ), { method: 'POST', credentials: 'same-origin', body: body } )
+			.then( function ( r ) { return r.json(); } )
+			.then( function ( j ) {
+				inp._busy = false;
+				if ( ! j || ! j.success ) { show( inp, ( j && j.data && j.data.message ) || 'Fehler beim Speichern', true ); return; }
+				var m = j.data.minutes, tr = inp.closest( 'tr' ), id = inp.getAttribute( 'data-id' );
+				inp.value = j.data.text;
+				inp.setAttribute( 'data-min', m === null ? '' : String( m ) );
+				inp.setAttribute( 'data-est', '0' );
+				inp.removeAttribute( 'title' );
+				f.querySelector( 'input[name="orig[' + id + ']"]' ).value = j.data.text;
+				f.querySelector( 'input[name="est[' + id + ']"]' ).value = '0';
+				tr.classList.remove( 'is-est' );
+				tr.classList.toggle( 'is-missing', m === null );
+				show( inp, '✓ gespeichert', false );
+				refresh();
+			} )
+			.catch( function () { inp._busy = false; show( inp, 'Fehler beim Speichern', true ); } );
+	};
+	Array.prototype.forEach.call( f.querySelectorAll( '.bwm-dur-input' ), function ( inp ) {
+		inp.addEventListener( 'change', function () { save( inp ); } );
+		inp.addEventListener( 'blur', function () { save( inp ); } );
+		inp.addEventListener( 'keydown', function ( e ) { if ( e.key === 'Enter' ) { e.preventDefault(); save( inp ); } } );
+		inp.parentNode.querySelector( '.bwm-dur-ok' ).addEventListener( 'click', function () { save( inp ); } );
+	} );
+}());
+</script>
+		<?php
+	}
+
 	private static function hours( $min ) {
 		return sprintf( '%d:%02d h', intdiv( (int) $min, 60 ), (int) $min % 60 );
 	}
@@ -576,17 +991,26 @@ final class BW_Bridge_Maintenance {
 			register_setting( $group, BW_Bridge_Scan::OPT_VULNS_ON, [ 'type' => 'boolean', 'default' => 1, 'show_in_rest' => false, 'sanitize_callback' => $bool ] );
 		}
 		register_setting( $group, BW_Bridge_Log::OPT_RHYTHM, [ 'type' => 'string', 'default' => 'quarter', 'show_in_rest' => false, 'sanitize_callback' => static fn( $v ) => isset( BW_Bridge_Log::RHYTHMS[ $v ] ) ? $v : 'quarter' ] );
+		if ( class_exists( 'BW_Bridge_Report_Mail' ) ) {
+			BW_Bridge_Report_Mail::register_settings( $group );
+		}
 	}
 
 	/** Zeilen für die Einstellungstabelle. */
 	public static function settings_rows() {
 		$rh = [ 'month' => 'Monat', 'quarter' => 'Quartal', 'half' => 'Halbjahr', 'year' => 'Jahr' ];
+		if ( isset( $_GET['bw_mail'] ) ) {
+			echo '<tr><td colspan="2" style="padding:0">' . self::mail_notice() . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in mail_notice().
+		}
 		echo '<tr><th scope="row" colspan="2"><h2 style="margin:0">Wartungsprotokoll</h2><p class="description" style="font-weight:normal">Bericht unter <a href="' . esc_url( self::url() ) . '">Werkzeuge › Wartungsprotokoll</a>. IP-Adressen werden nur gekürzt gespeichert.</p></th></tr>';
 		echo '<tr><th scope="row">Abrechnungszeitraum</th><td><select name="' . esc_attr( BW_Bridge_Log::OPT_RHYTHM ) . '">';
 		foreach ( $rh as $k => $label ) {
 			printf( '<option value="%s"%s>%s</option>', esc_attr( $k ), selected( BW_Bridge_Log::rhythm(), $k, false ), esc_html( $label ) );
 		}
 		echo '</select> ab <input type="date" name="' . esc_attr( BW_Bridge_Log::OPT_START ) . '" value="' . esc_attr( (string) get_option( BW_Bridge_Log::OPT_START, '' ) ) . '"><p class="description">Vertragsbeginn. Leer = Kalenderzeiträume (Quartale ab 1. Jänner). Das Vertragsjahr für die jährliche Sicherheitsanalyse rechnet ab diesem Datum.</p></td></tr>';
+		if ( class_exists( 'BW_Bridge_Report_Mail' ) ) {
+			BW_Bridge_Report_Mail::settings_rows();
+		}
 		printf( '<tr><th scope="row">Tage in der Datenbank</th><td><input type="number" min="30" max="3650" name="%s" value="%d" class="small-text"> <p class="description">Ältere Einträge wandern monatsweise in komprimierte Archivdateien unter <code>wp-content/uploads/bw-bridge-log-…/</code> (gesperrt) und werden für Berichte von dort mitgelesen.</p></td></tr>', esc_attr( BW_Bridge_Log::OPT_DB_DAYS ), (int) BW_Bridge_Log::db_days() );
 		if ( ! BW_Bridge_Scan::disabled() ) {
 			printf( '<tr><th scope="row">Dateien überwachen</th><td><label><input type="checkbox" name="%s" value="1" %s> aktivieren</label><p class="description">Täglicher Abgleich der Code-Dateien von Core, Plugins und Themes sowie der PHP-Dateien in uploads; Vergleich mit den Originaldateien von wordpress.org. Unerwartete Änderungen und PHP-Dateien an ungewöhnlicher Stelle erscheinen als Warnung (es wird nichts verschoben oder gelöscht).</p></td></tr>', esc_attr( BW_Bridge_Scan::OPT_FILES_ON ), checked( BW_Bridge_Scan::files_enabled(), true, false ) );
@@ -663,12 +1087,75 @@ final class BW_Bridge_Maintenance {
 .bwm-table tr.lvl-warning td:first-child{box-shadow:inset 3px 0 0 var(--bwm-fail)}
 .bwm-tag{font-size:11px;background:var(--bwm-bg);border-radius:4px;padding:1px 6px;color:var(--bwm-ink-2)}
 .bwm-list{margin:0;columns:2}
+.bwm-dur{display:inline-flex;flex-direction:column;gap:3px;align-items:flex-end}
+.bwm-dur-sub{display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.bwm-notes-table th.num{width:8.5em}
+.bwm-dur-input{width:5.2em;text-align:right;font-variant-numeric:tabular-nums;padding:2px 6px;min-height:28px}
+.bwm-dur-static{white-space:nowrap}
+.bwm-est,.bwm-dur-ok,.bwm-dur-sub{display:none}
+.bwm-note-row.is-est .bwm-dur-sub{display:inline-flex}.bwm-note-row.is-est .bwm-est{display:inline;font-size:11px;color:#9a6700}
+.bwm-note-row.is-est .bwm-dur-input{border-style:dashed;border-color:#c98b00}
+.bwm-note-row.is-est .bwm-dur-ok{display:inline-block;font-size:11px;padding:1px 8px;border:1px solid #c98b00;border-radius:4px;background:#fff8e1;color:#7a5200;cursor:pointer;line-height:1.6;white-space:nowrap}
+.bwm-note-row.is-missing td{background:#fffaf0}
+.bwm-note-row.is-missing td:first-child{box-shadow:inset 3px 0 0 var(--bwm-warn)}
+.bwm-note-row.is-missing .bwm-dur-input{border-color:var(--bwm-warn)}
+.bwm-dur-msg{text-align:right;font-size:11px;color:#0a7a0a}
+.bwm-dur-msg:empty{display:none}
+.bwm-dur-msg.is-bad{color:var(--bwm-fail)}
+.bwm-durform.is-js .bwm-dur-actions{display:none}
+.bwm-dur-actions{margin:10px 0 0}
+.bwm-prompt{padding:12px 18px}
+.bwm-prompt summary{cursor:pointer}
+.bwm-prompt[open] summary{margin-bottom:8px}
+@media (max-width:700px){.bwm .bwm-scroll .bwm-notes-table{min-width:0;font-size:12px}.bwm-notes-table th,.bwm-notes-table td{padding:6px 5px}.bwm-notes-table th:nth-child(2),.bwm-notes-table td:nth-child(2),.bwm-notes-table th:nth-child(n+5),.bwm-notes-table td:nth-child(n+5){display:none}.bwm-notes-table th.num{width:6.5em}}
 .bwm-note{margin-top:12px}
 .bwm-note summary{list-style:none;display:inline-block}
 .bwm-note form{margin-top:10px;padding:12px;background:var(--bwm-bg);border-radius:8px}
 .bwm-row{display:flex;flex-wrap:wrap;gap:14px}
 .bwm-filter{margin:0 0 12px}
+.bwm-tile{text-decoration:none;color:inherit}
+a.bwm-tile{transition:border-color .15s,box-shadow .15s}
+a.bwm-tile:hover,a.bwm-tile:focus{color:inherit;border-color:#b8c3d4;box-shadow:0 2px 8px rgba(11,27,51,.12)}
+a.bwm-tile:focus-visible{outline:2px solid var(--bwm-accent);outline-offset:2px}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+.bwm [id^=bwm-]{scroll-margin-top:48px}
+.bwm [id^=bwm-]:target{animation:bwm-flash 1.8s ease-out}
+@keyframes bwm-flash{0%,35%{outline:2px solid var(--bwm-accent);outline-offset:3px}100%{outline:2px solid transparent;outline-offset:3px}}
+@media (prefers-reduced-motion:reduce){.bwm [id^=bwm-]:target{animation:none;outline:2px solid var(--bwm-accent);outline-offset:3px}}
+.bwm-mailform{display:inline}
+.bwm-totop{position:fixed;right:24px;bottom:24px;z-index:9990;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:999px;background:var(--bwm-accent);color:#fff;text-decoration:none;font-weight:600;box-shadow:0 4px 14px rgba(11,27,51,.25);transition:opacity .2s,transform .2s}
+.bwm-totop:hover,.bwm-totop:focus{color:#fff;background:#1e40af}
+.bwm-totop:focus-visible{outline:2px solid var(--bwm-ink);outline-offset:2px}
+.bwm-totop.is-hidden{opacity:0;transform:translateY(12px);pointer-events:none}
+@media (max-width:782px){.bwm-totop{right:16px;bottom:16px}}
+@media (prefers-reduced-motion:reduce){.bwm-totop{transition:none}}
+.bwm-scroll{overflow-x:auto;max-width:100%}
+.bwm-scroll .bwm-table{min-width:560px}
+.bwm-break{word-break:break-all}
+.bwm-seo-top{display:grid;grid-template-columns:200px 1fr;gap:24px;align-items:center;margin-bottom:6px}
+.bwm-ring-wrap{text-align:center}
+.bwm-ring{width:150px;height:150px;display:block;margin:0 auto}
+.bwm-ring .track{fill:none;stroke:var(--bwm-bg);stroke-width:12}
+.bwm-ring .val{fill:none;stroke-width:12;stroke-linecap:round}
+.bwm-ring .num{font-size:28px;font-weight:600;fill:var(--bwm-ink)}
+.bwm-ring.is-ok .val{stroke:var(--bwm-ok)}.bwm-ring.is-warn .val{stroke:var(--bwm-warn)}.bwm-ring.is-fail .val{stroke:var(--bwm-fail)}
+.bwm-ring-note{font-size:12px;margin:6px 0 0}
+.bwm-seo-cats li{grid-template-columns:10em 1fr 3.5em;row-gap:0}
+.bwm-seo-cats .bwm-bar-counts{grid-column:2/4;font-size:12px;margin:2px 0 6px}
+.bwm-bar.is-ok{background:var(--bwm-ok)}.bwm-bar.is-warn{background:var(--bwm-warn)}.bwm-bar.is-fail{background:var(--bwm-fail)}
+.bwm-sc-ok{color:#0a7a0a}.bwm-sc-warn{color:#9a6700}.bwm-sc-fail{color:var(--bwm-fail)}
+.bwm-checks-compact li{padding:5px 0}
+.bwm-pages-list summary,.bwm-page-checks summary{cursor:pointer}
+.bwm-pages-list ul{margin:6px 0 0 16px;list-style:disc}
+.bwm-pages-list li{margin:0 0 2px}
+.bwm-page-checks summary a{font-size:12px;word-break:break-all}
+.bwm-page-checks .bwm-checks{margin-top:8px;padding:8px 10px;background:var(--bwm-bg);border-radius:8px}
+.bwm-page-checks .bwm-checks li{border-color:#dde3ec}
+.bwm-seo-tasks td:first-child{white-space:nowrap}
+@media (max-width:700px){.bwm-seo-top{grid-template-columns:1fr}.bwm-seo-cats li,.bwm-bars li{grid-template-columns:8em 1fr 3em}.bwm-checks li{grid-template-columns:1fr;gap:2px}}
 @media print{
+.bwm-scroll{overflow:visible}.bwm-pages-list:not([open]) ul,.bwm-page-checks:not([open]) .bwm-checks{display:none}
 #adminmenumain,#wpadminbar,#wpfooter,.bw-no-print,.notice,.update-nag{display:none!important}
 #wpcontent,#wpbody-content{margin:0!important;padding:0!important}
 .bwm{max-width:none}.bwm-card,.bwm-tile{break-inside:avoid;border-color:#ccc}

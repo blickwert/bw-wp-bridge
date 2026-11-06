@@ -22,6 +22,19 @@ function get_current_user_id() { return 1; }
 class WP_Error { public $code, $msg, $data; function __construct( $c = '', $m = '', $d = [] ) { $this->code = $c; $this->msg = $m; $this->data = $d; } function get_error_code() { return $this->code; } function get_error_message() { return $this->msg; } }
 class Req { public $route, $headers; function __construct( $route, $key = null ) { $this->route = $route; $this->headers = $key === null ? [] : [ 'x_bw_bridge_key' => $key ]; } function get_route() { return $this->route; } function get_header( $n ) { return $this->headers[ $n ] ?? null; } }
 
+/* Benutzer-Stubs */
+$GLOBALS['users'] = []; $GLOBALS['cur_user'] = 0;
+class U { public $ID, $user_login, $roles = [ 'administrator' ], $meta = []; function __construct( $id, $login ) { $this->ID = $id; $this->user_login = $login; } function add_role( $r ) { $this->roles[] = $r; } }
+function sanitize_user( $u, $strict = false ) { return preg_replace( '/[^a-z0-9_.\-@ ]/i', '', (string) $u ); }
+function get_user_by( $f, $v ) { foreach ( $GLOBALS['users'] as $u ) { if ( $u->user_login === $v ) { return $u; } } return false; }
+function get_userdata( $id ) { return $GLOBALS['users'][ $id ] ?? false; }
+function get_user_meta( $id, $k, $single = true ) { return $GLOBALS['users'][ $id ]->meta[ $k ] ?? ''; }
+function update_user_meta( $id, $k, $v ) { $GLOBALS['users'][ $id ]->meta[ $k ] = $v; return true; }
+function get_users( $a ) { $o = []; foreach ( $GLOBALS['users'] as $u ) { if ( ( $u->meta[ $a['meta_key'] ] ?? null ) == $a['meta_value'] && in_array( $a['role'], $u->roles, true ) ) { $o[] = $u; } } return array_slice( $o, 0, $a['number'] ); }
+function wp_insert_user( $d ) { $id = count( $GLOBALS['users'] ) + 10; $u = new U( $id, $d['user_login'] ); $u->roles = [ $d['role'] ]; $u->data = $d; $GLOBALS['users'][ $id ] = $u; return $id; }
+function wp_get_current_user() { return $GLOBALS['users'][ $GLOBALS['cur_user'] ] ?? new U( 0, '' ); }
+function remove_accents( $s ) { return $s; } function untrailingslashit( $s ) { return rtrim( $s, '/' ); }
+
 require __DIR__ . '/../bw-wp-bridge.php';
 
 $pass = $fail = 0;
@@ -72,6 +85,48 @@ check( 'status: richtiger Schlüssel → valid=true', $K::summary( new Req( '/x'
 $K::remove();
 check( 'entfernt: wieder ohne Prüfung', ! $K::is_active() && null === $K::enforce( null, null, new Req( '/bw-bridge/v1/plugins' ) ) && $K::site_id() === '' );
 check( 'alter Schlüssel nach dem Entfernen ungültig', ! $K::is_valid( $key ) );
+
+/* 7. Dienstbenutzer */
+check( 'Standard-Anmeldename ist „support“', 'support' === $K::service_login() && 'support' === $K::SERVICE_LOGIN );
+$uid = $K::service_user_id();
+$u   = $GLOBALS['users'][ $uid ];
+check( 'neuer Dienstbenutzer: Login support, Administrator, Anzeigename Support', 'support' === $u->user_login && [ 'administrator' ] === $u->roles && 'Support' === $u->data['display_name'] && 'Support' === $u->data['nickname'] && 'Support' === $u->data['first_name'] );
+check( 'neuer Dienstbenutzer ist per Meta markiert', 1 === $u->meta[ $K::SERVICE_META ] );
+check( 'zweiter Aufruf legt keinen weiteren Benutzer an', $uid === $K::service_user_id() && 1 === count( $GLOBALS['users'] ) );
+check( 'Umgebungsvariablen nennen den tatsächlichen Login', false !== strpos( $K::env_block( [ 'key' => 'k', 'app_password' => 'p' ], $K::service_user_login( $uid ) ), 'WP_TESTSEITE_USER=support' ) );
+check( 'ohne Umbenennen kein Altname-Hinweis', null === $K::legacy_service_user() );
+// is_claude
+$GLOBALS['cur_user'] = $uid;
+check( 'is_claude: Benutzer mit Dienstmarkierung', BW_Bridge_Log::is_claude() );
+$GLOBALS['users'][ $uid ]->meta = [];
+check( 'is_claude: ohne Meta, Login = service_login()', BW_Bridge_Log::is_claude() );
+$GLOBALS['users'][ $uid ]->user_login = 'kunde';
+check( 'is_claude: normaler Benutzer nein', ! BW_Bridge_Log::is_claude() );
+$GLOBALS['users'][ $uid ]->meta[ $K::SERVICE_META ] = 1; $GLOBALS['users'][ $uid ]->user_login = 'irgendwer';
+check( 'is_claude: Meta genügt auch bei beliebigem Login', BW_Bridge_Log::is_claude() );
+
+// Altbestand: vorhandener Benutzer „claude“ wird weiterverwendet
+$GLOBALS['users'] = [ 5 => new U( 5, 'claude' ) ];
+$uid = $K::service_user_id();
+check( 'Altbestand: Benutzer „claude“ weiterverwendet, kein zweiter Benutzer', 5 === $uid && 1 === count( $GLOBALS['users'] ) );
+check( 'Altbestand: Meta wird gesetzt', 1 === $GLOBALS['users'][5]->meta[ $K::SERVICE_META ] );
+check( 'Altbestand: Umgebungsvariablen zeigen „claude“', false !== strpos( $K::env_block( [ 'key' => 'k', 'app_password' => 'p' ], $K::service_user_login( $uid ) ), 'WP_TESTSEITE_USER=claude' ) );
+check( 'Altbestand: Umbenennen wird angeboten', $K::legacy_service_user() && 5 === $K::legacy_service_user()->ID );
+$GLOBALS['users'][5]->meta = []; $GLOBALS['cur_user'] = 5;
+check( 'is_claude: früherer Login „claude“ ohne Meta', BW_Bridge_Log::is_claude() );
+
+// Markierter Benutzer hat Vorrang vor Namen
+$GLOBALS['users'][6] = new U( 6, 'support' ); $GLOBALS['users'][7] = new U( 7, 'agentur' ); $GLOBALS['users'][7]->meta[ $K::SERVICE_META ] = 1;
+check( 'markierter Benutzer hat Vorrang', 7 === $K::service_user_id() );
+$GLOBALS['users'] = [ 6 => new U( 6, 'support' ), 5 => new U( 5, 'claude' ) ];
+check( 'ohne Markierung: service_login() vor Altname', 6 === $K::service_user_id() && 2 === count( $GLOBALS['users'] ) );
+
+// Konstante (zuletzt, Konstanten lassen sich nicht zurücknehmen)
+define( 'BW_WP_BRIDGE_SERVICE_LOGIN', 'Agentur Zugang!' );
+check( 'Konstante überschreibt den Login (sanitize_user)', 'Agentur Zugang' === $K::service_login() );
+$GLOBALS['users'] = [];
+$uid = $K::service_user_id();
+check( 'Konstante: neuer Benutzer mit diesem Login', 'Agentur Zugang' === $GLOBALS['users'][ $uid ]->user_login );
 
 echo "\n$pass bestanden, $fail fehlgeschlagen\n";
 exit( $fail ? 1 : 0 );
