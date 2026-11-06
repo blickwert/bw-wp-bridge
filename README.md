@@ -178,6 +178,11 @@ wp_bridge.py scan-files --period previous --unexpected
 zum Weiterverarbeiten: Zusammenfassung, durchgeführte Arbeiten, Zustand Sicherheit und SEO, Empfehlungen für die kommende Laufzeit
 und einmal im Jahr die ausführliche Sicherheitsanalyse.
 
+**Wartungs-Agent (ab 1.8):** [`prompts/wartung-agent.md`](prompts/wartung-agent.md) beschreibt, wie ein Claude-Agent
+(z. B. als geplante Aufgabe) die Befunde einer oder aller eingetragenen Websites prüft, die sicheren Punkte selbst behebt
+(Plugin-Updates, Scans, fehlende Meta-Beschreibungen …), jede Änderung mit Notiz protokolliert und alles Übrige als
+Entscheidung mit Empfehlung meldet.
+
 ```bash
 wp_bridge.py history --period previous --area updates     # current | previous | year | previous-year, oder --from/--to
 wp_bridge.py history -q Kontakt --via claude
