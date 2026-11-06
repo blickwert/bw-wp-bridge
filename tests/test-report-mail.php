@@ -129,7 +129,7 @@ check( 'HTML: Kopf mit Zeitraum und Datum', false !== strpos( $h, 'Wartungsberic
 check( 'HTML: Kennzahlen (9 Updates, 1.234 Anmeldungen, 2:15 h)', false !== strpos( $h, '>9<' ) && false !== strpos( $h, '1.234' ) && false !== strpos( $h, '2:15 h' ) );
 check( 'HTML: Sicherheitsprüfung Dringend/Empfehlung ohne ok', false !== strpos( $h, 'PHP veraltet' ) && false !== strpos( $h, 'Dringend' ) && false !== strpos( $h, 'Empfehlung' ) && false === strpos( $h, 'Alles gut' ) );
 check( 'HTML: SEO-Score, Kategorie und Aufgabe', false !== strpos( $h, '82 %' ) && false !== strpos( $h, 'Meta' ) && false !== strpos( $h, 'Titel kürzen' ) && false !== strpos( $h, '2 Seiten' ) );
-check( 'HTML: Schwachstellen und Dateien', false !== strpos( $h, 'Bekannte Schwachstellen: 3 (1 kritisch, 2 mittel)' ) && false !== strpos( $h, 'unerwarteten Änderungen: 1' ) );
+check( 'HTML: Schwachstellen und Dateien', false !== strpos( $h, 'Bekannte Schwachstellen: 3 (1 kritisch, 2 mittel)' ) && false !== strpos( $h, '1 Bereich(e) weichen von den Originaldateien ab' ) );
 check( 'HTML: Link, Notiz, Versionen, Anhang-Hinweis', false !== strpos( $h, 'href="https://example.test/wp-admin/tools.php?page=x&amp;from=a"' ) && false !== strpos( $h, 'Formular angepasst' ) && false !== strpos( $h, '45 min' ) && false !== strpos( $h, 'WordPress 6.8 · PHP 8.2 · BW WP Bridge 1.2.3' ) && false !== strpos( $h, 'wartung-abc123-2026-07-01_2026-09-30.json' ) );
 $h = BW_Bridge_Report_Mail::html( data( [ 'seo_analysis' => [ 'score' => null ] ] ), '' );
 check( 'HTML: SEO noch nicht gelaufen', false !== strpos( $h, 'SEO-Analyse noch nicht gelaufen' ) );
@@ -140,6 +140,9 @@ $ups = []; for ( $i = 1; $i <= 25; $i++ ) { $ups[] = [ 'date' => '2026-07-02', '
 $d = data(); $d['sections']['updates'] = $ups;
 $h = BW_Bridge_Report_Mail::html( $d, '' );
 check( 'HTML: 20 Updates, „… und 5 weitere“', false !== strpos( $h, 'Update Nummer 20<' ) && false === strpos( $h, 'Update Nummer 21<' ) && false !== strpos( $h, '… und 5 weitere' ) );
+$h = BW_Bridge_Report_Mail::html( data( [ 'sections' => [ 'updates' => [ [ 'date' => '2026-11-06', 'message' => 'Plugin installiert: X 1.0' ], [ 'date' => '2026-11-06', 'message' => 'Plugin installiert: X 1.0' ], [ 'date' => '2026-11-05', 'message' => 'Plugin installiert: X 1.0' ] ] ] ] ), 'https://x' );
+check( 'HTML: gleiche Updates am selben Tag zusammengefasst', 1 === substr_count( $h, 'X 1.0 <span' ) && false !== strpos( $h, '(2×)' ) && 2 === substr_count( $h, 'Plugin installiert: X 1.0' ) );
+check( 'HTML: Schrift am Inhalt (nicht nur am body)', 2 <= substr_count( $h, 'font-family:' ) );
 $h = BW_Bridge_Report_Mail::html( [], '' );
 check( 'HTML: leere Daten ohne Fehler', false !== strpos( $h, 'Keine offenen Punkte' ) || false !== strpos( $h, 'Keine Prüfung' ) );
 

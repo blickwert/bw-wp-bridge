@@ -23,6 +23,8 @@ final class BW_Bridge_Report_Mail {
 	const ACTION     = 'bw_bridge_report_send';
 	const MAX_TRIES  = 3;
 	const TRIES_KEY  = 'bw_bridge_report_tries_';
+	/** Schrift im Inhalt: am body allein reicht nicht, Gmail und andere entfernen dessen Stil. */
+	const FONT       = "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
 	/** Für Tests: Callable ( array $range ) → Berichtsdaten. Standard (null): BW_Bridge_History::report(). */
 	public static $report_builder = null;
@@ -265,7 +267,7 @@ final class BW_Bridge_Report_Mail {
 				if ( ( $c['status'] ?? '' ) !== $st ) {
 					continue;
 				}
-				$out .= '<tr><td style="padding:6px 8px 6px 0;vertical-align:top;white-space:nowrap;font-size:12px;font-weight:bold;color:' . $color . '">' . self::e( $label ) . '</td>'
+				$out .= '<tr><td width="96" style="width:96px;padding:6px 8px 6px 0;vertical-align:top;white-space:nowrap;font-size:12px;font-weight:bold;color:' . $color . '">' . self::e( $label ) . '</td>'
 					. '<td style="padding:6px 0;font-size:14px;line-height:1.4;color:#0b1b33"><strong>' . self::e( $c['title'] ?? '' ) . '</strong>'
 					. ( ! empty( $c['detail'] ) ? '<br><span style="color:#52606f">' . self::e( $c['detail'] ) . '</span>' : '' ) . '</td></tr>';
 			}
@@ -281,9 +283,9 @@ final class BW_Bridge_Report_Mail {
 		$td     = 'padding:8px 0;border-bottom:1px solid #e3e8ef;font-size:14px;color:#0b1b33';
 
 		$h  = '<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . self::e( self::subject( $d ) ) . '</title></head>';
-		$h .= '<body style="margin:0;padding:0;background:#f3f5f9;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif">';
+		$h .= '<body style="margin:0;padding:0;background:#f3f5f9;' . self::FONT . '">';
 		$h .= '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#f3f5f9"><tr><td align="center" style="padding:16px">';
-		$h .= '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px;background:#ffffff;border:1px solid #e3e8ef;border-radius:8px"><tr><td style="padding:24px">';
+		$h .= '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px;background:#ffffff;border:1px solid #e3e8ef;border-radius:8px"><tr><td style="padding:24px;' . self::FONT . '">';
 
 		// 1. Kopf
 		$h .= '<h1 style="margin:0 0 4px;font-size:22px;color:#0b1b33">Wartungsbericht · ' . self::e( $site['name'] ?? '' ) . '</h1>';
@@ -369,7 +371,7 @@ final class BW_Bridge_Report_Mail {
 			} else {
 				$h .= self::p( 'Keine bekannten Schwachstellen.' );
 			}
-			$h .= self::p( $iss ? 'Dateien mit unerwarteten Änderungen: ' . $iss : 'Keine auffälligen Dateiänderungen.' );
+			$h .= self::p( $iss ? $iss . ' Bereich(e) weichen von den Originaldateien ab (Einzelheiten in der Sicherheitsprüfung oben).' : 'Alle geprüften Bereiche stimmen mit den Originaldateien überein.' );
 		}
 
 		// 6. Updates
@@ -377,12 +379,23 @@ final class BW_Bridge_Report_Mail {
 		$h      .= self::h2( 'Updates im Zeitraum' );
 		if ( $updates ) {
 			$h .= '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse">';
-			foreach ( array_slice( $updates, 0, 20 ) as $u ) {
-				$h .= '<tr><td style="padding:3px 10px 3px 0;vertical-align:top;white-space:nowrap;font-size:13px;color:#52606f">' . self::e( self::date( $u['date'] ?? '' ) ) . '</td><td style="padding:3px 0;font-size:13px;color:#0b1b33">' . self::e( $u['message'] ?? '' ) . '</td></tr>';
+			// Gleiche Einträge am selben Tag zusammenfassen (z. B. mehrfach dasselbe Plugin installiert).
+			$grouped = [];
+			foreach ( $updates as $u ) {
+				$key = ( $u['date'] ?? '' ) . '|' . ( $u['message'] ?? '' );
+				if ( isset( $grouped[ $key ] ) ) {
+					$grouped[ $key ]['n'] += max( 1, (int) ( $u['count'] ?? 1 ) );
+				} else {
+					$grouped[ $key ] = [ 'date' => $u['date'] ?? '', 'message' => $u['message'] ?? '', 'n' => max( 1, (int) ( $u['count'] ?? 1 ) ) ];
+				}
+			}
+			$grouped = array_values( $grouped );
+			foreach ( array_slice( $grouped, 0, 20 ) as $u ) {
+				$h .= '<tr><td style="padding:3px 10px 3px 0;vertical-align:top;white-space:nowrap;font-size:13px;color:#52606f">' . self::e( self::date( $u['date'] ) ) . '</td><td style="padding:3px 0;font-size:13px;color:#0b1b33">' . self::e( $u['message'] ) . ( $u['n'] > 1 ? ' <span style="color:#52606f">(' . (int) $u['n'] . '×)</span>' : '' ) . '</td></tr>';
 			}
 			$h .= '</table>';
-			if ( count( $updates ) > 20 ) {
-				$h .= self::p( '… und ' . ( count( $updates ) - 20 ) . ' weitere', true );
+			if ( count( $grouped ) > 20 ) {
+				$h .= self::p( '… und ' . ( count( $grouped ) - 20 ) . ' weitere', true );
 			}
 		} else {
 			$h .= self::p( 'Keine Updates im Zeitraum.', true );
