@@ -27,8 +27,9 @@ Führe die Wartung für <Website | alle eingetragenen Websites> nach prompts/war
    `plugins`.
 3. Sichere Punkte erledigen (Liste unten).
 4. Kontrolle: `audit` und `seo` erneut, Ergebnis mit vorher vergleichen.
-5. Notizen schreiben (Regeln unten): `history-note "<Text>" --area <updates|security|seo|changes>` – **ohne** `--minutes`.
-   Die Dauer trägt die Betreuerin bzw. der Betreuer im Backend nach (Feld „Dauer“ je Notiz).
+5. Notizen schreiben (Regeln unten): `history-note "<Text>" --area <updates|security|seo|changes> --minutes <n> --estimate`.
+   Die Dauer ist eine **Schätzung** und bleibt als solche markiert, bis die Betreuerin bzw. der Betreuer sie im Backend
+   bestätigt oder ändert (Feld „Dauer“ je Notiz).
 6. Abschluss im Chat (oder als Datei, wohin gewünscht): je Website **Erledigt**, **Geprüft, kein Handlungsbedarf** und
    **Zu entscheiden** (mit Empfehlung und Begründung).
 
@@ -43,7 +44,8 @@ Die Notizen lesen Kund:innen im Wartungsbericht. Sie sollen klingen wie die kurz
   aus der Analyse (die stehen schon im Bericht). Seiten mit ihrem Namen nennen.
 - **Nur Erledigtes.** Was nur geprüft wurde, nur dann als Notiz, wenn es für Kund:innen eine Aussage hat („Sicherheitsmeldung
   geprüft – kein Handlungsbedarf.“). Offene Entscheidungen gehören nicht in Notizen, sondern in die Abschlussmeldung.
-- **Keine Zeitangabe** und keine Schätzung; die Dauer trägt ein Mensch ein.
+- **Dauer nur als Schätzung** (`--minutes … --estimate`), realistisch für eine Fachkraft, die die Arbeit von Hand
+  erledigt hätte: Prüfen, Ändern, Kontrollieren. In 5-Minuten-Schritten, mindestens 5 Minuten. Im Notiztext keine Zeitangabe.
 - **Sprache der Kund:innen** (Deutsch), auch wenn die Website-Inhalte englisch sind.
 
 | Statt | Besser |
