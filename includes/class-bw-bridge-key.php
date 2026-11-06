@@ -30,6 +30,7 @@ final class BW_Bridge_Key {
 		add_filter( 'rest_pre_dispatch', [ __CLASS__, 'enforce' ], 5, 3 );
 		add_action( 'admin_post_bw_bridge_key_generate', [ __CLASS__, 'handle_generate' ] );
 		add_action( 'admin_post_bw_bridge_key_remove', [ __CLASS__, 'handle_remove' ] );
+		add_action( 'admin_post_bw_bridge_rename_service', [ __CLASS__, 'handle_rename' ] );
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -120,33 +121,127 @@ final class BW_Bridge_Key {
 		}
 		check_admin_referer( 'bw_bridge_key' );
 		$key = self::generate();
-		$new = [ 'key' => $key, 'app_password' => self::create_app_password( self::service_user_id() ), 'user' => self::SERVICE_LOGIN ];
+		$uid = self::service_user_id();
+		$new = [ 'key' => $key, 'app_password' => self::create_app_password( $uid ), 'user' => self::service_user_login( $uid ) ];
 		set_transient( 'bw_bridge_key_new_' . get_current_user_id(), $new, 120 );
 		wp_safe_redirect( admin_url( 'options-general.php?page=' . BW_Bridge_Settings::PAGE ) );
 		exit;
 	}
 
-	const SERVICE_LOGIN = 'claude';
-	const SERVICE_EMAIL = 'claude@blickwert.at';
-	const SERVICE_APP   = 'claude-code';
+	const SERVICE_LOGIN  = 'support';
+	const SERVICE_EMAIL  = 'support@blickwert.at';
+	const SERVICE_APP    = 'claude-code';
+	const SERVICE_META   = '_bw_bridge_service';
+	const LEGACY_LOGINS  = [ 'claude' ];
 
-	/** ID des Dienstbenutzers „claude“ (Administrator); wird bei Bedarf angelegt. 0, wenn das nicht gelingt. */
+	/**
+	 * Anmeldename des Dienstbenutzers: Standard „support“ (neutral für Kunden), per Konstante
+	 * BW_WP_BRIDGE_SERVICE_LOGIN änderbar.
+	 */
+	public static function service_login() {
+		if ( defined( 'BW_WP_BRIDGE_SERVICE_LOGIN' ) ) {
+			$login = sanitize_user( (string) BW_WP_BRIDGE_SERVICE_LOGIN, true );
+			if ( '' !== $login ) {
+				return $login;
+			}
+		}
+		return self::SERVICE_LOGIN;
+	}
+
+	/** Dienstbenutzer als Objekt (Benutzer-Meta, sonst Anmeldename, sonst früherer Name) oder null. */
+	public static function service_user() {
+		$found = get_users( [ 'meta_key' => self::SERVICE_META, 'meta_value' => '1', 'role' => 'administrator', 'number' => 1, 'orderby' => 'ID', 'order' => 'ASC' ] ); // phpcs:ignore WordPress.DB.SlowDBQuery
+		if ( $found ) {
+			return $found[0];
+		}
+		foreach ( array_merge( [ self::service_login() ], self::LEGACY_LOGINS ) as $login ) {
+			$user = get_user_by( 'login', $login );
+			if ( $user ) {
+				return $user;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * ID des Dienstbenutzers (Administrator); wird bei Bedarf angelegt. 0, wenn das nicht gelingt.
+	 * Ein vorhandener Benutzer „claude“ aus früheren Versionen wird weiterverwendet (kein zweiter Benutzer).
+	 */
 	public static function service_user_id() {
-		$user = get_user_by( 'login', self::SERVICE_LOGIN );
+		$user = self::service_user();
 		if ( $user ) {
 			if ( ! in_array( 'administrator', (array) $user->roles, true ) ) {
 				$user->add_role( 'administrator' );
 			}
+			if ( '1' !== (string) get_user_meta( $user->ID, self::SERVICE_META, true ) ) {
+				update_user_meta( $user->ID, self::SERVICE_META, 1 );
+			}
 			return (int) $user->ID;
 		}
 		$id = wp_insert_user( [
-			'user_login'   => self::SERVICE_LOGIN,
+			'user_login'   => self::service_login(),
 			'user_email'   => self::SERVICE_EMAIL,
-			'display_name' => 'Claude',
+			'display_name' => 'Support',
+			'nickname'     => 'Support',
+			'first_name'   => 'Support',
 			'user_pass'    => wp_generate_password( 32, true, true ),
 			'role'         => 'administrator',
 		] );
-		return is_wp_error( $id ) ? 0 : (int) $id;
+		if ( is_wp_error( $id ) ) {
+			return 0;
+		}
+		update_user_meta( (int) $id, self::SERVICE_META, 1 );
+		return (int) $id;
+	}
+
+	/** Anmeldename des Dienstbenutzers (für die Umgebungsvariablen). */
+	public static function service_user_login( $user_id ) {
+		$user = $user_id ? get_userdata( $user_id ) : false;
+		return $user ? (string) $user->user_login : self::service_login();
+	}
+
+	/** Zeigt die Einrichtung noch einen früheren Anmeldenamen (z. B. „claude“)? Dann Umbenennen anbieten. */
+	public static function legacy_service_user() {
+		$user = self::service_user();
+		return $user && in_array( $user->user_login, self::LEGACY_LOGINS, true ) && $user->user_login !== self::service_login() ? $user : null;
+	}
+
+	public static function handle_rename() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Keine Berechtigung.', 403 );
+		}
+		check_admin_referer( 'bw_bridge_rename_service' );
+		global $wpdb;
+		$back = admin_url( 'options-general.php?page=' . BW_Bridge_Settings::PAGE );
+		$user = self::legacy_service_user();
+		$to   = self::service_login();
+		$err  = '';
+		if ( ! $user ) {
+			$err = 'Kein Dienstbenutzer mit altem Namen gefunden.';
+		} elseif ( (int) $user->ID === get_current_user_id() ) {
+			$err = 'Bitte mit einem anderen Administrator-Benutzer umbenennen – der Dienstbenutzer kann sich nicht selbst umbenennen.';
+		} elseif ( get_user_by( 'login', $to ) ) {
+			$err = 'Der Benutzername „' . $to . '“ ist bereits vergeben.';
+		}
+		if ( '' === $err ) {
+			$from = (string) $user->user_login;
+			$ok   = $wpdb->update( $wpdb->users, [ 'user_login' => $to, 'user_nicename' => sanitize_title( $to ) ], [ 'ID' => (int) $user->ID ] );
+			if ( false === $ok ) {
+				$err = 'Der Benutzer konnte nicht umbenannt werden.';
+			} else {
+				wp_update_user( [ 'ID' => (int) $user->ID, 'display_name' => 'Support' ] );
+				update_user_meta( (int) $user->ID, self::SERVICE_META, 1 );
+				clean_user_cache( (int) $user->ID );
+				BW_Bridge_Log::add( [
+					'area' => 'system', 'category' => 'user', 'action' => 'renamed', 'level' => 'notice',
+					'object_type' => 'user', 'object_id' => (string) $user->ID, 'object_name' => $to,
+					'message' => 'Dienstbenutzer von ' . $from . ' in ' . $to . ' umbenannt',
+				] );
+			}
+		}
+		set_transient( 'bw_bridge_rename_' . get_current_user_id(), '' === $err ? [ 'ok' => true, 'to' => $to ] : [ 'ok' => false, 'msg' => $err ], 120 );
+		wp_safe_redirect( $back );
+		exit;
 	}
 
 	/**
@@ -197,13 +292,15 @@ final class BW_Bridge_Key {
 			delete_transient( 'bw_bridge_key_new_' . get_current_user_id() );
 		}
 		echo '<h2>Verbindungsschlüssel</h2>';
+		self::render_rename_notice();
 		echo '<p>Der Schlüssel verbindet genau diese Website mit dem Client (z. B. Claude). Er wird als Umgebungsvariable <code>WP_BRIDGE_KEY</code> eingetragen. Ohne ihn lehnt die Bridge ab – auch mit richtigem Anwendungspasswort. So landen Änderungen nie versehentlich auf der falschen Website.</p>';
 		if ( $new ) {
 			if ( ! is_array( $new ) ) {
 				$new = [ 'key' => (string) $new, 'app_password' => '' ];
 			}
-			$block = self::env_block( $new, self::SERVICE_LOGIN );
-			echo '<div class="notice notice-success inline"><p><strong>Zugangsdaten – werden nur jetzt angezeigt:</strong></p><p><textarea readonly class="large-text code" rows="5" style="max-width:48em" onfocus="this.select()">' . esc_textarea( $block ) . '</textarea></p><p>Jetzt kopieren und als Umgebungsvariablen eintragen. Nicht in einen Chat einfügen. Das Anwendungspasswort „claude-code“ gehört dem Administrator-Benutzer „claude“ (claude@blickwert.at) und steht unter Benutzer › claude › Anwendungspasswörter.</p></div>';
+			$login = isset( $new['user'] ) && '' !== (string) $new['user'] ? (string) $new['user'] : self::service_user_login( self::service_user() ? self::service_user()->ID : 0 );
+			$block = self::env_block( $new, $login );
+			echo '<div class="notice notice-success inline"><p><strong>Zugangsdaten – werden nur jetzt angezeigt:</strong></p><p><textarea readonly class="large-text code" rows="5" style="max-width:48em" onfocus="this.select()">' . esc_textarea( $block ) . '</textarea></p><p>Jetzt kopieren und als Umgebungsvariablen eintragen. Nicht in einen Chat einfügen. Das Anwendungspasswort „claude-code“ gehört dem Administrator-Benutzer „' . esc_html( $login ) . '“ und steht unter Benutzer › ' . esc_html( $login ) . ' › Anwendungspasswörter.</p></div>';
 		}
 		if ( self::is_active() ) {
 			echo '<p>Status: <strong>aktiv</strong>. Kennung dieser Website: <code>' . esc_html( self::site_id() ) . '</code> (nicht geheim; zum Gegenprüfen als <code>WP_BRIDGE_SITE</code> im Client).</p>';
@@ -222,6 +319,42 @@ final class BW_Bridge_Key {
 			submit_button( 'Schlüssel entfernen', 'delete', 'submit', false );
 			echo '</form>';
 		}
+		self::render_rename_form();
 		echo '<hr>';
+	}
+
+	/** Ergebnis des Umbenennens (einmalig). */
+	private static function render_rename_notice() {
+		$res = get_transient( 'bw_bridge_rename_' . get_current_user_id() );
+		if ( ! is_array( $res ) ) {
+			return;
+		}
+		delete_transient( 'bw_bridge_rename_' . get_current_user_id() );
+		if ( ! empty( $res['ok'] ) ) {
+			echo '<div class="notice notice-success inline"><p>Der Dienstbenutzer heißt jetzt „' . esc_html( $res['to'] ) . '“. Die Umgebungsvariable <code>WP_&lt;NAME&gt;_USER</code> im Client muss auf diesen Namen geändert werden; das Anwendungspasswort bleibt gültig.</p></div>';
+		} else {
+			echo '<div class="notice notice-error inline"><p>' . esc_html( (string) ( $res['msg'] ?? 'Umbenennen fehlgeschlagen.' ) ) . '</p></div>';
+		}
+	}
+
+	/** Hinweis und Schaltfläche, wenn der Dienstbenutzer noch einen früheren Namen trägt. */
+	private static function render_rename_form() {
+		$user = self::legacy_service_user();
+		if ( ! $user ) {
+			return;
+		}
+		$to = self::service_login();
+		echo '<h3>Dienstbenutzer umbenennen</h3>';
+		echo '<p>Der Dienstbenutzer heißt noch „' . esc_html( $user->user_login ) . '“. Neue Einrichtungen nutzen den neutralen Namen „' . esc_html( $to ) . '“.</p>';
+		if ( (int) $user->ID === get_current_user_id() ) {
+			echo '<p class="description">Zum Umbenennen mit einem anderen Administrator-Benutzer anmelden.</p>';
+			return;
+		}
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( 'bw_bridge_rename_service' );
+		echo '<input type="hidden" name="action" value="bw_bridge_rename_service">';
+		submit_button( 'Dienstbenutzer in „' . $to . '“ umbenennen', 'secondary', 'submit', false );
+		echo '<p class="description"><strong>Achtung:</strong> Danach muss die Umgebungsvariable <code>WP_&lt;NAME&gt;_USER</code> im Client auf „' . esc_html( $to ) . '“ geändert werden, sonst schlagen Anfragen fehl. Das Anwendungspasswort bleibt gültig, es gehört zur Benutzer-ID.</p>';
+		echo '</form>';
 	}
 }

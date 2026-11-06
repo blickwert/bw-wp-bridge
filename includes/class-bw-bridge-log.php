@@ -129,6 +129,46 @@ final class BW_Bridge_Log {
 		return $wpdb->insert( self::table(), $row ) ? (int) $wpdb->insert_id : false;
 	}
 
+	/** Einzelnen Eintrag aus der Datenbank lesen (normalisiert) oder null. */
+	public static function get( $id ) {
+		global $wpdb;
+		if ( (int) $id < 1 || ! self::ready() ) {
+			return null;
+		}
+		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE id = %d', (int) $id ), ARRAY_A );
+		return $row ? self::normalize( $row ) : null;
+	}
+
+	/**
+	 * Felder in den Details eines Eintrags in der Datenbank ändern (null löscht ein Feld). Archivierte Einträge
+	 * lassen sich nicht ändern. Rückgabe: true oder false (nicht gefunden, nicht in der Datenbank, Fehler).
+	 */
+	public static function update_details( $id, array $changes ) {
+		global $wpdb;
+		$id = (int) $id;
+		if ( $id < 1 || ! self::ready() ) {
+			return false;
+		}
+		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT id, details FROM ' . self::table() . ' WHERE id = %d', $id ), ARRAY_A );
+		if ( ! $row ) {
+			return false;
+		}
+		$d = is_string( $row['details'] ?? null ) ? json_decode( $row['details'], true ) : null;
+		$d = is_array( $d ) ? $d : [];
+		foreach ( $changes as $k => $v ) {
+			if ( null === $v ) {
+				unset( $d[ $k ] );
+			} else {
+				$d[ $k ] = $v;
+			}
+		}
+		$json = $d ? wp_json_encode( $d, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) : null;
+		if ( null !== $json && strlen( $json ) > 16000 ) {
+			return false;
+		}
+		return false !== $wpdb->update( self::table(), [ 'details' => $json ], [ 'id' => $id ] );
+	}
+
 	public static function placeholder( $col ) {
 		return in_array( $col, [ 'user_id', 'cnt' ], true ) ? '%d' : '%s';
 	}
@@ -197,7 +237,7 @@ final class BW_Bridge_Log {
 	}
 
 	/**
-	 * Wie kam die Änderung zustande: claude (Dienstbenutzer oder Client der Bridge), app (Anwendungspasswort),
+	 * Wie kam die Änderung zustande: claude (Dienstbenutzer oder Client der Bridge; interner Wert, im Bericht „Support“), app (Anwendungspasswort),
 	 * rest, backend, web (Anmeldeseite/Frontend), cron, cli.
 	 */
 	public static function via() {
@@ -228,7 +268,14 @@ final class BW_Bridge_Log {
 			return false;
 		}
 		$u = wp_get_current_user();
-		return $u && ! empty( $u->ID ) && BW_Bridge_Key::SERVICE_LOGIN === $u->user_login;
+		if ( ! $u || empty( $u->ID ) ) {
+			return false;
+		}
+		// Dienstbenutzer: per Markierung (Benutzer-Meta), sonst am Anmeldenamen (aktueller oder früherer Name).
+		if ( function_exists( 'get_user_meta' ) && '1' === (string) get_user_meta( $u->ID, BW_Bridge_Key::SERVICE_META, true ) ) {
+			return true;
+		}
+		return BW_Bridge_Key::service_login() === $u->user_login || in_array( $u->user_login, BW_Bridge_Key::LEGACY_LOGINS, true );
 	}
 
 	/* ------------------------------------------------------------------ */

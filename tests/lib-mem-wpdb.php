@@ -27,6 +27,16 @@ class Mem_Wpdb {
 		if ( false !== strpos( $sql, 'ORDER BY created DESC' ) ) { usort( $out, fn( $a, $b ) => strcmp( $b['created'], $a['created'] ) ?: $b['id'] <=> $a['id'] ); }
 		return null === $limit ? $out : array_slice( array_values( $out ), 0, $limit );
 	}
+	function get_row( $q, $f = null ) {
+		[ $sql, $args ] = is_array( $q ) ? $q : [ $q, [] ];
+		if ( preg_match( '/WHERE id = %d/', $sql ) ) { $r = $this->rows[ (int) $args[0] ] ?? null; return $r ? $r : null; }
+		$all = $this->filter( $q ); return $all ? array_values( $all )[0] : null;
+	}
+	function update( $t, $data, $where ) {
+		$id = (int) ( $where['id'] ?? 0 );
+		if ( ! isset( $this->rows[ $id ] ) ) { return 0; }
+		$this->rows[ $id ] = array_merge( $this->rows[ $id ], $data ); return 1;
+	}
 	function get_results( $q, $f = null ) { return array_values( $this->filter( $q ) ); }
 	function get_var( $q ) {
 		$sql = is_array( $q ) ? $q[0] : $q;
