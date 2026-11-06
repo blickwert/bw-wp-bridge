@@ -665,7 +665,7 @@ final class BW_Bridge_Seo {
 			foreach ( [ 'title' => 'Seitentitel', 'description' => 'Meta-Beschreibung' ] as $k => $label ) {
 				$v = self::lower( (string) ( $p['metrics'][ $k ] ?? '' ) );
 				if ( '' !== $v && count( $seen[ $k ][ $v ] ) > 1 ) {
-					$p['checks'][] = self::c( 'duplicate_' . $k, 'quality', 'warn', $label . ' auf ' . count( $seen[ $k ][ $v ] ) . ' Seiten gleich', 'Jede Seite braucht einen eigenen ' . $label . '.' );
+					$p['checks'][] = self::c( 'duplicate_' . $k, 'quality', 'warn', $label . ' auf ' . count( $seen[ $k ][ $v ] ) . ' Seiten gleich', 'Doppelte Angaben machen Seiten austauschbar – je Seite einen eigenen Text schreiben.' );
 				}
 			}
 			$own = array_values( array_filter( $broken, static fn( $b ) => in_array( $p['id'], $b['from'], true ) ) );
