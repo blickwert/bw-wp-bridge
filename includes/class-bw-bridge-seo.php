@@ -113,7 +113,8 @@ final class BW_Bridge_Seo {
 		$ids   = [ $front ];
 		$types = array_values( array_diff( get_post_types( [ 'public' => true ] ), [ 'attachment' ] ) );
 		$pages = get_posts( [ 'post_type' => 'page', 'post_status' => 'publish', 'numberposts' => $max, 'orderby' => 'menu_order title', 'order' => 'ASC', 'fields' => 'ids', 'suppress_filters' => false ] );
-		$other = get_posts( [ 'post_type' => array_values( array_diff( $types, [ 'page' ] ) ), 'post_status' => 'publish', 'numberposts' => $max, 'orderby' => 'date', 'order' => 'DESC', 'fields' => 'ids', 'suppress_filters' => false ] );
+		$rest  = array_values( array_diff( $types, [ 'page' ] ) );
+		$other = ! $rest ? [] : get_posts( [ 'post_type' => $rest, 'post_status' => 'publish', 'numberposts' => $max, 'orderby' => 'date', 'order' => 'DESC', 'fields' => 'ids', 'suppress_filters' => false ] );
 		foreach ( array_merge( $pages, $other ) as $id ) {
 			if ( ! in_array( (int) $id, $ids, true ) ) {
 				$ids[] = (int) $id;
@@ -172,13 +173,16 @@ final class BW_Bridge_Seo {
 				return [ 'url' => $url, 'code' => 0, 'error' => $res->get_error_message(), 'ms' => $ms, 'redirects' => $hops, 'body' => '', 'headers' => [] ];
 			}
 			$code = (int) wp_remote_retrieve_response_code( $res );
-			$loc  = (string) wp_remote_retrieve_header( $res, 'location' );
+			$loc  = self::header( $res, 'location' );
 			if ( $code >= 300 && $code < 400 && '' !== $loc ) {
 				$hops[] = [ 'url' => $url, 'code' => $code ];
 				$url    = self::absolute( $loc, $url );
+				if ( 0 === $max_redirects ) {
+					// Nur die erste Weiterleitung feststellen (nicht folgen): Code und Ziel zurückgeben.
+					return [ 'url' => $url, 'code' => $code, 'ms' => $ms, 'redirects' => $hops, 'body' => '', 'headers' => [] ];
+				}
 				continue;
 			}
-			$h = wp_remote_retrieve_headers( $res );
 			return [
 				'url'       => $url,
 				'code'      => $code,
@@ -186,13 +190,19 @@ final class BW_Bridge_Seo {
 				'redirects' => $hops,
 				'body'      => (string) wp_remote_retrieve_body( $res ),
 				'headers'   => [
-					'content-type'  => (string) wp_remote_retrieve_header( $res, 'content-type' ),
-					'x-robots-tag'  => (string) wp_remote_retrieve_header( $res, 'x-robots-tag' ),
-					'cache-control' => (string) wp_remote_retrieve_header( $res, 'cache-control' ),
-				] + ( is_object( $h ) || is_array( $h ) ? [] : [] ),
+					'content-type'  => self::header( $res, 'content-type' ),
+					'x-robots-tag'  => self::header( $res, 'x-robots-tag' ),
+					'cache-control' => self::header( $res, 'cache-control' ),
+				],
 			];
 		}
 		return [ 'url' => $url, 'code' => 0, 'error' => 'Zu viele Weiterleitungen', 'ms' => 0, 'redirects' => $hops, 'body' => '', 'headers' => [] ];
+	}
+
+	/** Antwort-Header als Text (mehrfach vorhandene Header werden zusammengefasst). */
+	private static function header( $res, $name ) {
+		$v = wp_remote_retrieve_header( $res, $name );
+		return is_array( $v ) ? implode( ', ', array_map( 'strval', $v ) ) : (string) $v;
 	}
 
 	private static function fetch_page( $id ) {
@@ -209,8 +219,8 @@ final class BW_Bridge_Seo {
 	private static function fetch_site() {
 		$home = home_url( '/' );
 		$in   = [
-			'robots'   => self::fetch( home_url( '/robots.txt' ) ),
-			'notfound' => self::fetch( home_url( '/bw-bridge-seo-' . substr( md5( (string) time() ), 0, 8 ) . '-nicht-vorhanden/' ), 'GET', 0 ),
+			'robots'    => self::fetch( home_url( '/robots.txt' ) ),
+			'notfound'  => self::fetch( home_url( '/bw-bridge-seo-' . substr( md5( (string) time() ), 0, 8 ) . '-nicht-vorhanden/' ), 'GET', 0 ),
 			'site_icon' => (bool) get_option( 'site_icon' ),
 			'home'      => $home,
 		];
@@ -218,7 +228,7 @@ final class BW_Bridge_Seo {
 		if ( preg_match_all( '/^\s*sitemap:\s*(\S+)/im', $in['robots']['body'], $m ) ) {
 			$sm = $m[1][0];
 		}
-		foreach ( array_filter( [ $sm, home_url( '/sitemap_index.xml' ), home_url( '/wp-sitemap.xml' ) ] ) as $u ) {
+		foreach ( array_unique( array_filter( [ $sm, home_url( '/sitemap_index.xml' ), home_url( '/wp-sitemap.xml' ) ] ) ) as $u ) {
 			$r = self::fetch( $u );
 			if ( 200 === $r['code'] ) {
 				$in['sitemap'] = [ 'url' => $u, 'code' => 200, 'body' => substr( $r['body'], 0, 2000 ) ];
@@ -230,11 +240,13 @@ final class BW_Bridge_Seo {
 		if ( 0 === strpos( $home, 'https://' ) ) {
 			$in['http'] = self::fetch( 'http://' . $host . '/', 'GET', 0 );
 		}
-		$alt = 0 === strpos( $host, 'www.' ) ? substr( $host, 4 ) : 'www.' . $host;
-		if ( substr_count( $host, '.' ) <= ( 0 === strpos( $host, 'www.' ) ? 2 : 1 ) || 0 === strpos( $host, 'www.' ) ) {
+		// Gegenstück mit/ohne www nur bei Hauptdomains (example.at) oder www-Adressen, nicht bei Subdomains (dev.example.at).
+		$www = 0 === strpos( $host, 'www.' );
+		if ( '' !== $host && ( $www || 1 === substr_count( $host, '.' ) ) ) {
+			$alt            = $www ? substr( $host, 4 ) : 'www.' . $host;
 			$in['alt_host'] = self::fetch( ( 0 === strpos( $home, 'https://' ) ? 'https://' : 'http://' ) . $alt . '/', 'GET', 0 );
 		}
-		$in['robots']['body'] = substr( $in['robots']['body'], 0, 5000 );
+		$in['robots']['body'] = substr( $in['robots']['body'], 0, 20000 );
 		return self::site_checks( $in );
 	}
 
@@ -251,14 +263,14 @@ final class BW_Bridge_Seo {
 					$k = self::norm_url( $u );
 					if ( isset( $known[ $k ] ) ) {
 						if ( $known[ $k ] >= 400 || 0 === $known[ $k ] ) {
-							$todo[ $k ] = [ 'url' => $u, 'code' => $known[ $k ], 'done' => true, 'from' => array_merge( $todo[ $k ]['from'] ?? [], [ $p['id'] ] ) ];
+							$todo[ $k ] = [ 'url' => $u, 'code' => $known[ $k ], 'done' => true, 'from' => array_values( array_unique( array_merge( $todo[ $k ]['from'] ?? [], [ $p['id'] ] ) ) ) ];
 						}
 						continue;
 					}
 					$todo[ $k ] = [ 'url' => $u, 'code' => null, 'done' => false, 'from' => array_values( array_unique( array_merge( $todo[ $k ]['from'] ?? [], [ $p['id'] ] ) ) ) ];
 				}
 			}
-			$s['links'] = array_slice( $todo, 0, self::MAX_LINKS, true ) ?: [ '_' => [ 'done' => true ] ];
+			$s['links'] = array_slice( $todo, 0, self::MAX_LINKS, true );
 		}
 		foreach ( $s['links'] as $k => $l ) {
 			if ( ! empty( $l['done'] ) ) {
@@ -280,14 +292,14 @@ final class BW_Bridge_Seo {
 	private static function finish( array &$s ) {
 		$broken = [];
 		foreach ( $s['links'] as $l ) {
-			if ( isset( $l['url'] ) && ( 0 === (int) $l['code'] || (int) $l['code'] >= 400 ) ) {
+			if ( 0 === (int) $l['code'] || (int) $l['code'] >= 400 ) {
 				$broken[] = [ 'url' => $l['url'], 'code' => (int) $l['code'], 'from' => $l['from'] ];
 			}
 		}
 		$res = self::aggregate( $s['pages'], $s['site'], $broken );
 		$res['started']  = $s['started'];
 		$res['finished'] = gmdate( 'Y-m-d H:i:s' );
-		$res['links_checked'] = count( array_filter( $s['links'], static fn( $l ) => isset( $l['url'] ) ) );
+		$res['links_checked'] = count( $s['links'] );
 		$prev = get_option( self::OPT_RESULT, [] );
 		update_option( self::OPT_RESULT, $res, false );
 		$s['pages'] = [];
@@ -323,6 +335,10 @@ final class BW_Bridge_Seo {
 
 	private static function len( $s ) {
 		return function_exists( 'mb_strlen' ) ? mb_strlen( $s, 'UTF-8' ) : strlen( $s );
+	}
+
+	private static function lower( $s ) {
+		return function_exists( 'mb_strtolower' ) ? mb_strtolower( $s, 'UTF-8' ) : strtolower( $s );
 	}
 
 	private static function clean( $s ) {
@@ -373,7 +389,7 @@ final class BW_Bridge_Seo {
 		$host     = strtolower( (string) parse_url( $home, PHP_URL_HOST ) );
 		$metas    = [];
 		foreach ( $xp->query( '//meta' ) as $el ) {
-			$k = strtolower( $el->getAttribute( 'name' ) ?: $el->getAttribute( 'property' ) );
+			$k = strtolower( $el->getAttribute( 'name' ) ?: ( $el->getAttribute( 'property' ) ?: $el->getAttribute( 'http-equiv' ) ) );
 			if ( '' !== $k && ! isset( $metas[ $k ] ) ) {
 				$metas[ $k ] = self::clean( $el->getAttribute( 'content' ) );
 			}
@@ -453,10 +469,11 @@ final class BW_Bridge_Seo {
 		}
 		$m['words'] = '' === $text ? 0 : count( preg_split( '/\s+/u', $text ) );
 		$checks[]   = self::c( 'word_count', 'quality', $m['words'] < 150 ? 'fail' : ( $m['words'] < 300 ? 'warn' : 'ok' ), sprintf( '%d Wörter', $m['words'] ), $m['words'] < 300 ? 'Wenig Text: Suchmaschinen können das Thema schlecht einordnen (Ziel: ab 300 Wörtern auf Inhaltsseiten).' : '' );
-		$imgs   = $xp->query( '//body//img' );
+		$imgs   = $xp->query( '//body//img[not(ancestor::noscript)]' );
 		$no_alt = [];
 		foreach ( $imgs as $el ) {
-			if ( ! $el->hasAttribute( 'alt' ) || ( '' === trim( $el->getAttribute( 'alt' ) ) && 'presentation' !== $el->getAttribute( 'role' ) && ! $el->hasAttribute( 'alt' ) ) ) {
+			// alt="" ist gültig (dekoratives Bild); nur ein fehlendes Attribut zählt.
+			if ( ! $el->hasAttribute( 'alt' ) ) {
 				$no_alt[] = basename( (string) parse_url( $el->getAttribute( 'src' ) ?: $el->getAttribute( 'data-src' ), PHP_URL_PATH ) );
 			}
 		}
@@ -499,8 +516,8 @@ final class BW_Bridge_Seo {
 			$lh  = strtolower( (string) parse_url( $abs, PHP_URL_HOST ) );
 			if ( $lh === $host || preg_replace( '/^www\./', '', $lh ) === preg_replace( '/^www\./', '', $host ) ) {
 				$p = (string) parse_url( $abs, PHP_URL_PATH );
-				if ( ! preg_match( '#/(wp-admin|wp-login\.php|feed)(/|$)|\.(jpe?g|png|gif|webp|svg|pdf|zip|docx?|xlsx?|mp4|mp3)$#i', $p ) ) {
-					$int[ strtok( $abs, '#' ) ] = true;
+				if ( ! preg_match( '#/(wp-admin|wp-login\.php|wp-json|wp-content|feed)(/|$)|\.(jpe?g|png|gif|webp|svg|pdf|zip|docx?|xlsx?|mp4|mp3)$#i', $p ) ) {
+					$int[ explode( '#', $abs, 2 )[0] ] = true;
 				}
 			} elseif ( $lh ) {
 				$ext++;
@@ -532,7 +549,6 @@ final class BW_Bridge_Seo {
 	 */
 	public static function site_checks( array $in ) {
 		$out  = [];
-		$home = (string) ( $in['home'] ?? '' );
 		$rb   = $in['robots'] ?? [ 'code' => 0, 'body' => '' ];
 		if ( 200 !== (int) $rb['code'] ) {
 			$out[] = self::c( 'robots_txt', 'server', 'warn', 'Keine robots.txt (HTTP ' . (int) $rb['code'] . ')', 'WordPress erzeugt sonst eine virtuelle robots.txt – prüfen, ob eine Server-Regel sie blockiert.' );
@@ -564,16 +580,23 @@ final class BW_Bridge_Seo {
 		$nf    = (int) ( $in['notfound']['code'] ?? 0 );
 		$out[] = self::c( 'not_found', 'server', 404 === $nf || 410 === $nf ? 'ok' : 'warn', 404 === $nf || 410 === $nf ? 'Nicht vorhandene Seiten antworten mit 404' : 'Nicht vorhandene Seiten antworten mit HTTP ' . $nf, 404 === $nf || 410 === $nf ? '' : 'Soft-404: Suchmaschinen halten Fehlerseiten sonst für Inhalte.' );
 		$out[] = self::c( 'favicon', 'meta', ! empty( $in['site_icon'] ) ? 'ok' : 'warn', ! empty( $in['site_icon'] ) ? 'Website-Icon (Favicon) gesetzt' : 'Kein Website-Icon (Favicon)', ! empty( $in['site_icon'] ) ? '' : 'Design › Customizer › Website-Informationen.' );
-		unset( $home );
 		return $out;
 	}
 
 	/** Sperrt die robots.txt die ganze Website für alle Crawler (User-agent: * mit Disallow: /)? */
 	public static function robots_blocks_all( $txt ) {
-		$agents = [];
-		$star   = false;
-		$block  = false;
+		$agents  = [];
 		$prev_ua = false;
+		$dis     = false; // Gruppe mit Disallow: /
+		$allow   = false; // … und Allow: / (bei gleicher Länge gewinnt Allow)
+		$blocked = false;
+		$flush   = static function () use ( &$agents, &$dis, &$allow, &$blocked ) {
+			if ( in_array( '*', $agents, true ) && $dis && ! $allow ) {
+				$blocked = true;
+			}
+			$dis   = false;
+			$allow = false;
+		};
 		foreach ( preg_split( '/\R/', (string) $txt ) as $line ) {
 			$line = trim( preg_replace( '/#.*$/', '', $line ) );
 			if ( ! preg_match( '/^([a-z-]+)\s*:\s*(.*)$/i', $line, $m ) ) {
@@ -582,22 +605,23 @@ final class BW_Bridge_Seo {
 			$k = strtolower( $m[1] );
 			$v = trim( $m[2] );
 			if ( 'user-agent' === $k ) {
-				$agents  = $prev_ua ? array_merge( $agents, [ $v ] ) : [ $v ];
-				$prev_ua = true;
+				if ( ! $prev_ua ) {
+					$flush();
+					$agents = [];
+				}
+				$agents[] = strtolower( $v );
+				$prev_ua  = true;
 				continue;
 			}
 			$prev_ua = false;
-			if ( in_array( '*', $agents, true ) ) {
-				$star = true;
-				if ( 'disallow' === $k && '/' === $v ) {
-					$block = true;
-				}
-				if ( 'allow' === $k && '/' === $v ) {
-					$block = false;
-				}
+			if ( 'disallow' === $k && in_array( $v, [ '/', '/*' ], true ) ) {
+				$dis = true;
+			} elseif ( 'allow' === $k && in_array( $v, [ '/', '/*' ], true ) ) {
+				$allow = true;
 			}
 		}
-		return $star && $block;
+		$flush();
+		return $blocked;
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -628,7 +652,7 @@ final class BW_Bridge_Seo {
 				continue;
 			}
 			foreach ( [ 'title', 'description' ] as $k ) {
-				$v = mb_strtolower( (string) ( $p['metrics'][ $k ] ?? '' ), 'UTF-8' );
+				$v = self::lower( (string) ( $p['metrics'][ $k ] ?? '' ) );
 				if ( '' !== $v ) {
 					$seen[ $k ][ $v ][] = $p['id'];
 				}
@@ -639,7 +663,7 @@ final class BW_Bridge_Seo {
 				continue;
 			}
 			foreach ( [ 'title' => 'Seitentitel', 'description' => 'Meta-Beschreibung' ] as $k => $label ) {
-				$v = mb_strtolower( (string) ( $p['metrics'][ $k ] ?? '' ), 'UTF-8' );
+				$v = self::lower( (string) ( $p['metrics'][ $k ] ?? '' ) );
 				if ( '' !== $v && count( $seen[ $k ][ $v ] ) > 1 ) {
 					$p['checks'][] = self::c( 'duplicate_' . $k, 'quality', 'warn', $label . ' auf ' . count( $seen[ $k ][ $v ] ) . ' Seiten gleich', 'Jede Seite braucht einen eigenen ' . $label . '.' );
 				}
@@ -777,7 +801,7 @@ final class BW_Bridge_Seo {
 
 	/** Vergleichsform einer Adresse: ohne Schema, www, Anker, abschließenden Schrägstrich. */
 	public static function norm_url( $u ) {
-		$u = strtolower( strtok( (string) $u, '#' ) );
+		$u = strtolower( explode( '#', (string) $u, 2 )[0] );
 		$u = preg_replace( '#^https?://(www\.)?#', '', $u );
 		return rtrim( $u, '/' );
 	}
