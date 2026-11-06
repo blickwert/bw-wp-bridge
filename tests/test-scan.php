@@ -84,6 +84,14 @@ check( 'eval(base64_decode()) erkannt', [ 'eval-encoded' ] === BW_Bridge_Scan::p
 check( 'eval($_POST) erkannt', in_array( 'eval-input', BW_Bridge_Scan::patterns( '<?php @eval($_POST["x"]);' ), true ) );
 check( '$_GET[a]($_GET[b]) erkannt', in_array( 'input-call', BW_Bridge_Scan::patterns( '<?php $_GET["f"]($_GET["c"]);' ), true ) );
 check( 'Webshell-Namen erkannt', in_array( 'shell-names', BW_Bridge_Scan::patterns( '<?php // FilesMan' ), true ) );
+$own = [];
+foreach ( new RecursiveIteratorIterator( new RecursiveDirectoryIterator( dirname( __DIR__ ), FilesystemIterator::SKIP_DOTS ) ) as $f ) {
+	$rel = substr( $f->getPathname(), strlen( dirname( __DIR__ ) ) + 1 );
+	if ( 'php' === $f->getExtension() && ! preg_match( '#^(tests|\.git)/#', $rel ) && ( $hits = BW_Bridge_Scan::patterns( file_get_contents( $f ) ) ) ) {
+		$own[ $rel ] = $hits;
+	}
+}
+check( 'Der eigene Quelltext löst keine Muster aus (sonst halten Hoster-Scanner die Bridge für Schadcode)', [] === $own ) || print_r( $own );
 check( 'Normales base64_decode ist kein Treffer', [] === BW_Bridge_Scan::patterns( '<?php $img = base64_decode( $data ); echo esc_html( $_POST["name"] ?? "" );' ) );
 
 /* ---------- Erster Lauf: Ersterfassung ---------- */
