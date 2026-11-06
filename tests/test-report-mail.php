@@ -19,7 +19,7 @@ function register_setting( $g, $o, $a = [] ) { $GLOBALS['registered'][ $o ] = $a
 function get_option( $k, $d = false ) { return array_key_exists( $k, $GLOBALS['opts'] ) ? $GLOBALS['opts'][ $k ] : $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
 function get_transient( $k ) { return $GLOBALS['trans'][ $k ] ?? false; } function set_transient( $k, $v, $e = 0 ) { $GLOBALS['trans'][ $k ] = $v; return true; } function delete_transient( $k ) { unset( $GLOBALS['trans'][ $k ] ); return true; }
-function is_wp_error( $x ) { return $x instanceof WP_Error; } function is_email( $e ) { return (bool) filter_var( $e, FILTER_VALIDATE_EMAIL ); }
+function has_action( $h ) { return ! empty( $GLOBALS['has_action'][ $h ] ); } function is_wp_error( $x ) { return $x instanceof WP_Error; } function is_email( $e ) { return (bool) filter_var( $e, FILTER_VALIDATE_EMAIL ); }
 function current_user_can( $c ) { return true; }
 function sanitize_key( $k ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( $k ) ); } function sanitize_text_field( $s ) { return trim( strip_tags( (string) $s ) ); }
 function sanitize_file_name( $s ) { return preg_replace( '/[^A-Za-z0-9._\-]/', '-', $s ); } function sanitize_title( $s ) { return trim( preg_replace( '/[^a-z0-9]+/', '-', strtolower( $s ) ), '-' ); }
@@ -106,10 +106,13 @@ check( 'Fehlschlag: OPT_LAST unverändert', '2026-04-01_2026-06-30' === get_opti
 check( 'Fehlschlag: Protokolleintrag failed (Warnung)', [ 'failed' ] === log_actions() && 'warning' === array_values( $GLOBALS['wpdb']->rows )[0]['level'] );
 $r = BW_Bridge_Report_Mail::send( BW_Bridge_Log::resolve_range( null, '2026-07-01', '2026-09-30' ), 'manual' );
 check( 'send liefert WP_Error mit Fehlertext aus wp_mail_failed', is_wp_error( $r ) && false !== strpos( $r->get_error_message(), 'SMTP kaputt' ) );
+check( 'Ohne SMTP-Plugin: Hinweis in der Fehlermeldung', false !== strpos( $r->get_error_message(), 'SMTP-Plugin' ) );
+$GLOBALS['has_action']['phpmailer_init'] = true; $r2 = BW_Bridge_Report_Mail::send( BW_Bridge_Log::resolve_range( null, '2026-07-01', '2026-09-30' ), 'manual' ); unset( $GLOBALS['has_action'] );
+check( 'Mit SMTP-Einrichtung (phpmailer_init): kein Hinweis', is_wp_error( $r2 ) && false === strpos( $r2->get_error_message(), 'SMTP-Plugin' ) );
 BW_Bridge_Report_Mail::maybe_send( '2026-10-02' ); BW_Bridge_Report_Mail::maybe_send( '2026-10-03' );
 $n = count( $GLOBALS['mails'] );
 BW_Bridge_Report_Mail::maybe_send( '2026-10-04' );
-check( 'Höchstens 3 automatische Versuche je Zeitraum', $n === count( $GLOBALS['mails'] ) && 4 === $n );
+check( 'Höchstens 3 automatische Versuche je Zeitraum', $n === count( $GLOBALS['mails'] ) && 5 === $n ); // 3 automatische + 2 manuelle Versuche
 $GLOBALS['mail_ok'] = true; $GLOBALS['trans'] = [];
 check( 'Nächster Tag nach behobenem Fehler: gesendet', true === BW_Bridge_Report_Mail::maybe_send( '2026-10-05' ) && '2026-07-01_2026-09-30' === get_option( 'bw_bridge_report_last' ) );
 

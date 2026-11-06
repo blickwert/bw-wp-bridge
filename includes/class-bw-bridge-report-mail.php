@@ -199,7 +199,22 @@ final class BW_Bridge_Report_Mail {
 		if ( $ok ) {
 			return true;
 		}
-		return new WP_Error( 'bw_bridge_report_failed', '' !== $error ? 'E-Mail konnte nicht gesendet werden: ' . $error : 'E-Mail konnte nicht gesendet werden.' );
+		$msg = '' !== $error ? 'E-Mail konnte nicht gesendet werden: ' . $error : 'E-Mail konnte nicht gesendet werden.';
+		if ( ! self::smtp_plugin() ) {
+			$msg .= ' Hinweis: Kein SMTP-Plugin erkannt – viele Server können selbst keine E-Mails versenden. Ein SMTP-Plugin (z. B. WP Mail SMTP, FluentSMTP, Post SMTP) mit einem Postfach einrichten.';
+		}
+		return new WP_Error( 'bw_bridge_report_failed', $msg );
+	}
+
+	/** Name eines erkannten SMTP-Plugins oder null (nur für den Hinweis bei Fehlschlägen). */
+	public static function smtp_plugin() {
+		$known = [ 'WPMS_PLUGIN_VER' => 'WP Mail SMTP', 'FLUENTMAIL' => 'FluentSMTP', 'POST_SMTP_VER' => 'Post SMTP', 'EASY_WP_SMTP_PLUGIN_VERSION' => 'Easy WP SMTP', 'SMTP_MAILER_VERSION' => 'SMTP Mailer', 'SENDLAYER_PLUGIN_VERSION' => 'SendLayer', 'BREVO_MAIL_VERSION' => 'Brevo' ];
+		foreach ( $known as $const => $name ) {
+			if ( defined( $const ) ) {
+				return $name;
+			}
+		}
+		return has_action( 'phpmailer_init' ) ? 'phpmailer_init' : null;
 	}
 
 	private static function cleanup( $dir ) {
