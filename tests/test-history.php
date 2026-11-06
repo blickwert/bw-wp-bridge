@@ -100,6 +100,7 @@ check( 'Bridge-POST wird protokolliert', BW_Bridge_Log_WP::should_log_rest( new 
 check( 'Probelauf nicht', ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/bw-bridge/v1/elementor/12', [ 'dry_run' => true ] ), new Resp( 200 ) ) );
 check( 'Fehler nicht', ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/bw-bridge/v1/elementor/12' ), new Resp( 403 ) ) );
 check( 'Eigene Notiz-Route nicht', ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/bw-bridge/v1/history/notes' ), new Resp( 200 ) ) );
+check( 'Scan und SEO-Analyse starten nicht', ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/bw-bridge/v1/scan' ), new Resp( 200 ) ) && ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/bw-bridge/v1/seo' ), new Resp( 200 ) ) );
 check( 'wp/v2 ohne Anwendungspasswort nicht', ! BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/wp/v2/pages/5' ), new Resp( 200 ) ) );
 $GLOBALS['did']['application_password_did_authenticate'] = 1;
 check( 'wp/v2 mit Anwendungspasswort ja', BW_Bridge_Log_WP::should_log_rest( new Req( 'POST', '/wp/v2/pages/5' ), new Resp( 200 ) ) );
