@@ -19,6 +19,7 @@ dazu über dieses Plugin:
 | `GET history`, `POST history/notes` | Wartungsprotokoll lesen (Zeitraum, Bereich, Volltext) bzw. eine Notiz schreiben (Tätigkeit, Bereich, Aufwand, Ticket) |
 | `GET history/report` | alle Daten für den Wartungsbericht eines Zeitraums: Kennzahlen, Verlauf, Updates, Sicherheit, SEO, Änderungen, Notizen, Prüfung |
 | `GET audit` | Sicherheits- und SEO-Prüfung (aktueller Stand, nur lesend) |
+| `GET/POST seo` | SEO-Analyse der Seiten: Stand lesen bzw. Prüfung jetzt starten (nur lesend) |
 | `GET/POST scan` | Dateiüberwachung, Integritätsprüfung und Schwachstellen: Stand lesen bzw. Prüfung jetzt starten |
 | `GET acf/schema` | ACF-Aufbau nur lesend: Feldgruppen mit allen Feldern, Platzierungsregeln, eigene Post Types und Taxonomien (`group` filtert nach Titel/Schlüssel) |
 | `GET search?q=…` | Seiten, Beiträge, Produkte, Post-Meta und Elementor-Texte durchsuchen (`types`, `lang`, `meta`, `limit`) |
@@ -114,8 +115,9 @@ Jeder Eintrag sagt, **wie** er zustande kam: `claude` (Dienstbenutzer `claude` o
 User-Agent `bw-wp-bridge-client`), `backend`, `web` (Anmeldeseite/Website), `app` (anderes Anwendungspasswort), `cron`, `cli`.
 Probeläufe (`dry_run`) und Lesezugriffe werden nicht protokolliert.
 
-**Backend:** *Werkzeuge › Wartungsprotokoll* zeigt den Bericht eines Zeitraums mit Kennzahlen, Aktivität je Woche/Monat als Grafik,
-„Wer und wie“, Sicherheits- und SEO-Prüfung, Updates, Sicherheit, SEO, manuellen Änderungen und Notizen, dazu ein Formular für
+**Backend:** *Werkzeuge › Wartungsprotokoll* zeigt den Bericht eines Zeitraums mit Kennzahlen (die Kacheln sind Links und springen
+zu ihrem Abschnitt), Aktivität je Woche/Monat als Grafik, „Wer und wie“, Sicherheits- und SEO-Prüfung, SEO-Analyse der Seiten (ab 1.8),
+Updates, Sicherheit, SEO, manuellen Änderungen und Notizen, dazu ein Formular für
 Notizen, das vollständige Protokoll mit Filter, „Drucken / PDF“ und „Daten für Claude (JSON)“.
 
 **Einstellungen** (*Einstellungen › BW WP Bridge › Wartungsprotokoll*):
@@ -183,6 +185,48 @@ wp_bridge.py history-note "Kontaktformular-Empfänger umgestellt" --area changes
 wp_bridge.py report --period previous -o wartung.json      # Daten für den Wartungsbericht
 wp_bridge.py audit                                          # Sicherheits- und SEO-Prüfung
 ```
+
+### SEO-Analyse der Seiten (ab 1.8)
+
+Prüft die veröffentlichten Seiten im Frontend, ähnlich einem SEO-Check wie Seobility, und liefert eine Punktzahl je Bereich
+und insgesamt (0–100 %), eine Aufgabenliste und die Befunde je Seite. Nur lesend, es wird nichts auf der Website geändert.
+
+- **Seiten:** Startseite zuerst, dann Seiten, dann die neuesten Beiträge anderer Inhaltstypen; höchstens 50 (Filter
+  `bw_bridge_seo_max_pages`). Je Seite fünf Bereiche: **Meta-Angaben** (Titel, Beschreibung, Canonical, noindex, Sprache, Zeichensatz,
+  Viewport, Open Graph), **Seitenqualität** (Wortanzahl, Bilder ohne alt-Attribut, strukturierte Daten, gleicher Titel bzw. gleiche
+  Beschreibung auf mehreren Seiten), **Seitenstruktur** (H1 und Überschriften, Adresse der Seite), **Links** (interne und externe Links,
+  Linktexte, defekte interne Links) und **Server** (HTTP-Status, Antwortzeit, Größe des HTML, Weiterleitungen, unsichere http-Inhalte).
+- **Website-weit:** robots.txt, XML-Sitemap (auch in der robots.txt angegeben), Weiterleitung von http auf https, www/non-www,
+  Status der 404-Seite, Favicon. Interne Links werden höchstens 150 je Lauf geprüft.
+- **Ergebnis:** Punktzahl je Bereich und gesamt, Aufgabenliste (gleiche Befunde über alle Seiten zusammengefasst, mit der Zahl der
+  betroffenen Seiten) und Befunde je Seite. Im Wartungsprotokoll erscheint je Lauf ein Eintrag, in der Prüfung der Punkt „SEO-Analyse“.
+- **Ablauf:** wöchentlich per Cron in Schritten mit Zeitbudget (je höchstens 20 Sekunden, Filter `bw_bridge_seo_budget`).
+  Sofort starten: „Jetzt prüfen“ im Bericht, `POST bw-bridge/v1/seo` oder `wp_bridge.py seo --start`.
+- **Serverschutz:** Dev-Server mit `.htpasswd` antworten sonst mit 401. Die Abrufparameter lassen sich über den Filter
+  `bw_bridge_seo_request_args` anpassen (z. B. einen Header für die Anmeldung setzen).
+- Hart abschalten: `define( 'BW_WP_BRIDGE_SEO_DISABLED', true );`
+
+```bash
+wp_bridge.py seo                        # Stand: Punktzahl, Bereiche, Aufgaben
+wp_bridge.py seo --start                # jetzt prüfen (läuft in Schritten weiter)
+wp_bridge.py seo --pages --tasks 30     # zusätzlich Seiten mit Befunden, mehr Aufgaben
+```
+
+### Bericht per E-Mail (ab 1.8)
+
+Am ersten Tag nach Ende eines Abrechnungszeitraums (Rhythmus wie oben eingestellt) schickt die Bridge den Wartungsbericht
+automatisch per E-Mail: eine HTML-Zusammenfassung mit Kennzahlen, Sicherheits- und SEO-Prüfung, wichtigsten Aufgaben und Notizen,
+dazu die JSON-Datei „Daten für Claude“ als Anhang.
+
+- **Empfänger:** *Einstellungen › BW WP Bridge › Wartungsprotokoll › „Bericht per E-Mail“*, kommagetrennt. Standard ist
+  `maintenancereport@blickwert.at`. Der Versand ist standardmäßig eingeschaltet und lässt sich dort abschalten.
+- **Erster Lauf:** Nach Installation oder Update wird nur der vorherige Zeitraum als erledigt markiert. Für Zeiträume vor der
+  Einrichtung wird also kein Bericht verschickt.
+- **Fehlversuche:** Schlägt der Versand fehl, wird am nächsten Tag erneut versucht, insgesamt höchstens drei Mal je Zeitraum.
+  Versand und Fehlschläge stehen im Wartungsprotokoll (Bereich System, Kategorie Bericht).
+- **Von Hand:** „Testbericht jetzt senden“ in den Einstellungen (enthält den laufenden Zeitraum und nutzt die gespeicherten
+  Empfänger, also zuerst speichern) bzw. „Per E-Mail senden“ im Bericht.
+- Der Versand läuft über `wp_mail`. Die Website braucht also eine funktionierende E-Mail-Zustellung (ein SMTP-Plugin wird empfohlen).
 
 ## Verbindungsschlüssel (empfohlen)
 
@@ -300,6 +344,8 @@ includes/class-bw-bridge-log.php          Wartungsprotokoll: Tabelle, Einträge,
 includes/class-bw-bridge-log-wp.php       Wartungsprotokoll: WordPress-Ereignisse und REST-Schreibzugriffe aufzeichnen
 includes/class-bw-bridge-history.php      Routen history, history/notes, history/report; Berichtsdaten
 includes/class-bw-bridge-audit.php        Route audit: Sicherheits- und SEO-Prüfung, wöchentlicher Schnappschuss
+includes/class-bw-bridge-seo.php          Route seo: SEO-Analyse der Seiten (Prüfung je Seite, website-weite Punkte, Score, Aufgaben)
+includes/class-bw-bridge-report-mail.php  Wartungsbericht per E-Mail (automatisch je Zeitraum, Testversand, Fehlversuche)
 includes/class-bw-bridge-scan.php         Route scan: Dateiüberwachung, Integrität, Schwachstellen (wpvulnerability.net)
 admin/class-bw-bridge-settings.php        Einstellungsseite und Freigaben
 admin/class-bw-bridge-maintenance.php     Werkzeuge › Wartungsprotokoll (Bericht mit Grafik, Protokoll, Notizen)
@@ -335,6 +381,8 @@ Ohne WordPress-Installation, in einer simulierten Umgebung (`php tests/…`):
 - `php tests/test-elementor-texts.php`: Texte auslesen/setzen/vergleichen (atomare und klassische Widgets, Wiederholer, Fehlerfälle).
 - `php tests/test-bridge-content.php`: Sicherungen, Wiederherstellen, Probelauf, Meta, Stapel, Suche, WPML-Zuordnung
   (simulierte Umgebung, prüft u. a., dass die SQL-Platzhalter der Suche zu den Parametern passen).
+- `php tests/test-seo.php`: SEO-Prüfung je Seite, website-weite Prüfungen, robots.txt, Zusammenfassung und Score, Ablauf mit Linkprüfung.
+- `php tests/test-report-mail.php`: Empfänger, automatischer Versand einmal je Zeitraum, JSON-Anhang, Fehlversuche, HTML-Escaping.
 - `php tests/test-history.php`: Wartungsprotokoll (IP-Kürzung, Zeiträume, Zusammenfassen, Notizen, REST-Schreibzugriffe,
   Archiv schreiben/lesen, Aufbewahrung, Berichtsdaten).
 - `php tests/test-scan.php`: Dateiüberwachung in einer simulierten Installation (Ersterfassung, unerwartete/erwartete Änderungen,

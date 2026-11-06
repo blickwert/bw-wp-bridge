@@ -30,7 +30,8 @@ nach prompts/wartungsbericht.md. Ausgabe als Markdown, nichts auf der Website ä
    ```
    Ohne Zugang zur Website: die im Backend heruntergeladene JSON-Datei („Daten für Claude“) verwenden.
    Inhalt: `period`, `kpis`, `by_area`, `by_via`, `timeline`, `sections.updates`, `sections.security`
-   (`events`, `failed_logins`, `logins`), `sections.seo`, `sections.changes` (`objects`, `events`), `notes`,
+   (`events`, `failed_logins`, `logins`), `sections.seo`, `seo_analysis` (`score`, `categories`, `tasks`, `pages`, `broken_links`, `site`),
+   `sections.changes` (`objects`, `events`), `notes`,
    `audit` (`security`, `seo` mit Status `ok|info|warn|fail`), `audit_snapshots`, `scan` (Dateiüberwachung, `integrity.issues`,
    `vulns.items` mit Schweregrad und `fixed_in`), `versions`. Dateiänderungen und Funde stehen außerdem in `sections.security.events`
    (Kategorien `files`, `integrity`, `vuln`); Einzelheiten mit `wp_bridge.py scan-files --period … --unexpected`.
@@ -73,11 +74,13 @@ Tabelle: Datum · Bereich · Tätigkeit · Minuten · Ticket. Summe des Aufwands
 Ergebnis der Prüfung: zuerst `fail`, dann `warn`; je Punkt eine verständliche Erklärung und was zu tun ist.
 
 ## 4. Zustand SEO
-Wie 3, für SEO.
+Wie 3, für SEO. Die SEO-Punktzahl aus `seo_analysis.score` nennen (je Bereich aus `categories`) und die wichtigsten Aufgaben aus
+`seo_analysis.tasks` in verständlicher Sprache beschreiben, mit der Zahl der betroffenen Seiten. Defekte interne Links
+(`broken_links`) nennen. Fehlt `seo_analysis.score`, steht das als Hinweis im Bericht; dann gilt nur die Prüfung aus `audit`.
 
 ## 5. Empfehlungen für die kommende Laufzeit
 Priorisierte Liste (hoch / mittel / niedrig), je Empfehlung: was, warum, ungefährer Aufwand.
-Offene Punkte aus der Prüfung, wiederkehrende Muster aus dem Protokoll (z. B. viele Fehlanmeldungen → Anmeldeschutz),
+SEO-Aufgaben mit Status `fail` zuerst (hoch), `warn` danach (mittel). Offene Punkte aus der Prüfung, wiederkehrende Muster aus dem Protokoll (z. B. viele Fehlanmeldungen → Anmeldeschutz),
 anstehende größere Updates (PHP, Major-Versionen).
 
 ## 6. Jährliche Sicherheitsanalyse (nur im Jahresbericht)
