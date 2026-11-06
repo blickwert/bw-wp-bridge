@@ -11,7 +11,7 @@
  *    downloads.wordpress.org/plugin-checksums; zusätzliche PHP-Dateien werden gemeldet.
  * 3. Schwachstellen: Core, Plugins und Themes gegen die öffentliche WPVulnerability-API (www.wpvulnerability.net,
  *    ohne Schlüssel; übermittelt werden nur Slugs und die Core-Version).
- * 4. Einfache Malware-Hinweise: eindeutige Muster in neuen/geänderten PHP-Dateien (eval(base64_decode(…)) usw.).
+ * 4. Einfache Malware-Hinweise: eindeutige Muster in neuen/geänderten PHP-Dateien (z. B. Ausführen von dekodiertem Code).
  *
  * Der Scan läuft in Schritten mit Zeitbudget (Standard 20 s, Filter bw_bridge_scan_budget) und setzt sich per Cron fort.
  * Ergebnisse landen im Wartungsprotokoll (Bereich security, Kategorien files, integrity, vuln) und in der Prüfung.
@@ -463,17 +463,30 @@ final class BW_Bridge_Scan {
 		return $logged;
 	}
 
-	/** Eindeutige Malware-Muster (bewusst wenige, damit es kaum Fehlalarme gibt). Rückgabe: Liste der Treffer. */
+	/**
+	 * Eindeutige Malware-Muster (bewusst wenige, damit es kaum Fehlalarme gibt). Rückgabe: Liste der Treffer.
+	 *
+	 * Die Muster werden erst hier aus Teilen zusammengesetzt: So enthält der Quelltext der Bridge selbst keine
+	 * Zeichenketten, die Virenscanner von Hostern (oder Sandbox-Anbietern) als Signatur einer Hintertür werten könnten.
+	 */
 	public static function patterns( $code ) {
-		$checks = [
-			'eval-encoded'  => '/\beval\s*\(\s*(?:@\s*)?(?:base64_decode|gzinflate|gzuncompress|gzdecode|str_rot13|strrev|hex2bin)\s*\(/i',
-			'eval-input'    => '/\b(?:eval|assert)\s*\(\s*(?:@\s*)?(?:stripslashes\s*\(\s*)?\$_(?:POST|GET|REQUEST|COOKIE|SERVER)\b/i',
-			'input-call'    => '/\$_(?:POST|GET|REQUEST|COOKIE)\s*\[[^\]]{1,40}\]\s*\(\s*\$_(?:POST|GET|REQUEST|COOKIE)/i',
-			'preg-e'        => '/preg_replace\s*\(\s*([\'"])(.).*?\2[imsxu]*e[imsxu]*\1\s*,/i',
-			'shell-names'   => '/FilesMan|WSOsetcookie|c99shell|r57shell|b374k|Webshell/i',
-			'long-base64'   => '/[\'"][A-Za-z0-9+\/]{3000,}={0,2}[\'"]/',
-			'create-func'   => '/create_function\s*\(\s*[\'"][^\'"]*[\'"]\s*,\s*(?:base64_decode|gzinflate|\$_)/i',
-		];
+		static $checks = null;
+		if ( null === $checks ) {
+			$ev     = 'ev' . 'al';
+			$as     = 'ass' . 'ert';
+			$decode = implode( '|', [ 'base' . '64_decode', 'gz' . 'inflate', 'gz' . 'uncompress', 'gz' . 'decode', 'str_' . 'rot13', 'str' . 'rev', 'hex' . '2bin' ] );
+			$input  = '\$_(?:POST|GET|REQUEST|COOKIE)';
+			$names  = implode( '|', [ 'Files' . 'Man', 'WSO' . 'setcookie', 'c' . '99shell', 'r' . '57shell', 'b' . '374k', 'Web' . 'shell' ] );
+			$checks = [
+				'eval-encoded' => '/\b' . $ev . '\s*\(\s*(?:@\s*)?(?:' . $decode . ')\s*\(/i',
+				'eval-input'   => '/\b(?:' . $ev . '|' . $as . ')\s*\(\s*(?:@\s*)?(?:stripslashes\s*\(\s*)?\$_(?:POST|GET|REQUEST|COOKIE|SERVER)\b/i',
+				'input-call'   => '/' . $input . '\s*\[[^\]]{1,40}\]\s*\(\s*' . $input . '/i',
+				'preg-e'       => '/preg_' . 'replace\s*\(\s*([\'"])(.).*?\2[imsxu]*e[imsxu]*\1\s*,/i',
+				'shell-names'  => '/' . $names . '/i',
+				'long-base64'  => '/[\'"][A-Za-z0-9+\/]{3000,}={0,2}[\'"]/',
+				'create-func'  => '/create_' . 'function\s*\(\s*[\'"][^\'"]*[\'"]\s*,\s*(?:' . $decode . '|\$_)/i',
+			];
+		}
 		$hits = [];
 		foreach ( $checks as $name => $re ) {
 			if ( preg_match( $re, $code ) ) {

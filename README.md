@@ -157,8 +157,9 @@ und schreibt Ergebnisse ins Wartungsprotokoll (Bereich Sicherheit) und in die Pr
 - **Integrität:** Core gegen die Prüfsummen von api.wordpress.org, Plugins aus dem Verzeichnis gegen downloads.wordpress.org/plugin-checksums
   (bei Änderungen, neuer Version, sonst wöchentlich). Gemeldet werden geänderte Dateien und zusätzliche PHP-Dateien. Gekaufte Plugins
   (nicht im Verzeichnis) und Themes werden nur auf Änderungen überwacht.
-- **Malware-Hinweise:** wenige eindeutige Muster in neuen/geänderten PHP-Dateien (`eval(base64_decode(…))`, `eval($_POST…)`,
-  `$_GET[…]($_GET…)`, `preg_replace …/e`, bekannte Webshell-Namen, sehr lange Base64-Zeichenketten). Ersetzt keinen Malware-Scanner.
+- **Malware-Hinweise:** wenige eindeutige Muster in neuen/geänderten PHP-Dateien (Ausführen von dekodiertem oder übergebenem Code,
+  Aufruf von Funktionen aus Anfrageparametern, veraltetes `/e` bei Ersetzungen, bekannte Webshell-Namen, sehr lange Base64-Zeichenketten).
+  Die Muster stehen nicht im Klartext im Quelltext, damit Virenscanner von Hostern die Bridge nicht selbst für Schadcode halten. Ersetzt keinen Malware-Scanner.
 - **Schwachstellen:** Core, Plugins und Themes gegen [wpvulnerability.net](https://www.wpvulnerability.net/) (öffentlich, ohne Schlüssel;
   bündelt CVE, Wordfence, Patchstack, WPScan u. a.; Antworten 12 Stunden zwischengespeichert). Übermittelt werden nur Slugs und die
   WordPress-Version. Neue und behobene Schwachstellen erscheinen im Protokoll, im Wartungsbericht mit Schweregrad und Version mit der Behebung.
