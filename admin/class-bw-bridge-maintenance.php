@@ -148,7 +148,7 @@ final class BW_Bridge_Maintenance {
 		$site = $d['site'];
 		$rh   = [ 'month' => 'Monat', 'quarter' => 'Quartal', 'half' => 'Halbjahr', 'year' => 'Jahr' ];
 
-		echo '<header class="bwm-head"><div><p class="bwm-eyebrow">Wartungsbericht · ' . esc_html( $site['name'] ) . '</p>';
+		echo '<header class="bwm-head" id="bwm-top"><div><p class="bwm-eyebrow">Wartungsbericht · ' . esc_html( $site['name'] ) . '</p>';
 		echo '<h1>' . esc_html( $d['period']['label'] ) . '</h1>';
 		echo '<p class="bwm-sub">' . esc_html( date_i18n( 'd.m.Y', strtotime( $d['period']['from'] ) ) . ' – ' . date_i18n( 'd.m.Y', strtotime( $d['period']['to'] ) ) ) . ' · ' . esc_html( $site['url'] ) . ' · Abrechnung je ' . esc_html( $rh[ $d['contract']['rhythm'] ] ?? 'Quartal' ) . ( $d['contract']['start'] ? ' ab ' . esc_html( date_i18n( 'd.m.Y', strtotime( $d['contract']['start'] ) ) ) : '' ) . '</p></div>';
 		echo '<div class="bwm-actions bw-no-print"><button type="button" class="button" onclick="window.print()">Drucken / PDF</button> ';
@@ -298,6 +298,36 @@ final class BW_Bridge_Maintenance {
 		printf( '<textarea readonly class="large-text code" rows="5" onfocus="this.select()">%s</textarea>', esc_textarea( self::prompt( $d ) ) );
 		echo '</section>';
 		echo '<p class="bwm-muted">Erstellt ' . esc_html( date_i18n( 'd.m.Y H:i' ) ) . ' · WordPress ' . esc_html( $d['versions']['wordpress'] ) . ' · PHP ' . esc_html( $d['versions']['php'] ) . ' · BW WP Bridge ' . esc_html( $d['versions']['bridge'] ) . '</p>';
+		self::back_to_top();
+	}
+
+	/**
+	 * „Nach oben“: erscheint, sobald die Kennzahlen aus dem Blick sind (z. B. nach dem Sprung über eine Kachel), und führt
+	 * zurück zum Kopf des Berichts. Ohne JavaScript ist der Link immer sichtbar und springt per Anker.
+	 */
+	private static function back_to_top() {
+		echo '<a href="#bwm-top" class="bwm-totop bw-no-print" aria-label="Nach oben zu den Kennzahlen"><span aria-hidden="true">↑</span> Nach oben</a>';
+		?>
+<script>
+(function () {
+	var btn = document.querySelector( '.bwm-totop' ), kpis = document.querySelector( '.bwm-kpis' );
+	if ( ! btn || ! kpis ) { return; }
+	btn.classList.add( 'is-hidden' );
+	var update = function () { btn.classList.toggle( 'is-hidden', kpis.getBoundingClientRect().bottom > 0 ); };
+	window.addEventListener( 'scroll', update, { passive: true } );
+	window.addEventListener( 'hashchange', update );
+	update();
+	btn.addEventListener( 'click', function ( e ) {
+		e.preventDefault();
+		var reduce = window.matchMedia && window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches;
+		window.scrollTo( { top: 0, behavior: reduce ? 'auto' : 'smooth' } );
+		if ( window.history && history.replaceState ) { history.replaceState( null, '', location.pathname + location.search ); }
+		var first = kpis.querySelector( 'a' );
+		if ( first ) { first.focus( { preventScroll: true } ); }
+	} );
+})();
+</script>
+		<?php
 	}
 
 	/** Ampelklasse zu einer Punktzahl: unter 50 dringend, unter 80 Empfehlung, sonst in Ordnung. */
@@ -905,6 +935,12 @@ html{scroll-behavior:smooth}
 @keyframes bwm-flash{0%,35%{outline:2px solid var(--bwm-accent);outline-offset:3px}100%{outline:2px solid transparent;outline-offset:3px}}
 @media (prefers-reduced-motion:reduce){.bwm [id^=bwm-]:target{animation:none;outline:2px solid var(--bwm-accent);outline-offset:3px}}
 .bwm-mailform{display:inline}
+.bwm-totop{position:fixed;right:24px;bottom:24px;z-index:9990;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:999px;background:var(--bwm-accent);color:#fff;text-decoration:none;font-weight:600;box-shadow:0 4px 14px rgba(11,27,51,.25);transition:opacity .2s,transform .2s}
+.bwm-totop:hover,.bwm-totop:focus{color:#fff;background:#1e40af}
+.bwm-totop:focus-visible{outline:2px solid var(--bwm-ink);outline-offset:2px}
+.bwm-totop.is-hidden{opacity:0;transform:translateY(12px);pointer-events:none}
+@media (max-width:782px){.bwm-totop{right:16px;bottom:16px}}
+@media (prefers-reduced-motion:reduce){.bwm-totop{transition:none}}
 .bwm-scroll{overflow-x:auto;max-width:100%}
 .bwm-scroll .bwm-table{min-width:560px}
 .bwm-break{word-break:break-all}
