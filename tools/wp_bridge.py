@@ -54,6 +54,7 @@ Wartungsprotokoll und Bericht (ab Bridge 1.7):
   wp_bridge.py scan [--start]                           # Dateiüberwachung, Integrität, Schwachstellen: Stand bzw. jetzt prüfen
   wp_bridge.py vulns                                    # bekannte Schwachstellen in Core, Plugins, Themes
   wp_bridge.py scan-files --period previous --unexpected   # Dateiänderungen aus dem Protokoll
+  wp_bridge.py seo [--start] [--pages]                  # SEO-Analyse der Seiten (ab 1.8)
 
 Theme-Dateien (nur wenn im Backend unter Einstellungen › BW WP Bridge freigeschaltet):
   wp_bridge.py plugins                                 # installierte Plugins, Status, verfügbare Updates
@@ -499,6 +500,53 @@ def scan_command(c, a):
     print_vulns(r["vulns"])
 
 
+SEO_CATEGORY_NAMES = {"meta": "Meta-Angaben", "quality": "Inhalt", "structure": "Struktur", "links": "Links", "server": "Server"}
+
+
+def seo_command(c, a):
+    r = c.request("POST" if a.start else "GET", "bw-bridge/v1/seo")
+    if a.json_out:
+        out(r)
+        return
+    if r.get("running"):
+        state = "läuft (%d offen)" % (r.get("pending") or 0)
+    elif r.get("score") is None:
+        state = "noch nicht gelaufen"
+    else:
+        state = None
+    if state and r.get("score") is None:
+        print("SEO-Analyse: %s" % state)
+        return
+    head = "SEO-Analyse: %d %%" % r["score"]
+    if r.get("finished"):
+        head += " · Stand %s" % r["finished"][:16]
+    head += " · %d Seiten · %d Links geprüft" % (len(r.get("pages") or []), r.get("links_checked") or 0)
+    if state:
+        head += " · " + state
+    print(head)
+    for key, cat in (r.get("categories") or {}).items():
+        score = "%3d %%" % cat["score"] if cat.get("score") is not None else "  – "
+        print("  %-16s %s  (%d dringend, %d Empfehlungen)" % (cat.get("label") or SEO_CATEGORY_NAMES.get(key, key), score, cat.get("fail", 0), cat.get("warn", 0)))
+    tasks = r.get("tasks") or []
+    if tasks:
+        print("Aufgaben:")
+        for t in tasks[:max(0, a.tasks)]:
+            where = "(%d Seiten)" % len(t["pages"]) if t.get("pages") else "(Website)"
+            print("  [%s] %s %s" % (STATUS_MARK.get(t["status"], t["status"]), t["title"], where))
+        if len(tasks) > a.tasks:
+            print("  … %d weitere (--tasks N)" % (len(tasks) - a.tasks))
+    if r.get("broken_links"):
+        print("Defekte Links: %d" % len(r["broken_links"]))
+        for b in r["broken_links"][:10]:
+            print("  %s  %s" % (b.get("code"), b.get("url")))
+    if a.pages:
+        print("Seiten:")
+        for pg in sorted(r.get("pages") or [], key=lambda x: x.get("score", 0)):
+            print("  %3d %%  %s  %s – %d dringend, %d Empfehlungen" % (pg.get("score") or 0, pg.get("url"), pg.get("name"), pg.get("fail", 0), pg.get("warn", 0)))
+            for x in pg.get("checks") or []:
+                print("         [%s] %s%s" % (STATUS_MARK.get(x["status"], x["status"]), x["title"], (" – " + x["detail"]) if x.get("detail") else ""))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -589,6 +637,9 @@ def main():
     s = sub.add_parser("report", help="Alle Daten für den Wartungsbericht eines Zeitraums"); add_range(s)
     s.add_argument("--no-audit", action="store_true", help="ohne Sicherheits-/SEO-Prüfung"); s.add_argument("-o", "--out")
     s = sub.add_parser("audit", help="Sicherheits- und SEO-Prüfung (aktueller Stand)"); s.add_argument("--json", dest="json_out", action="store_true")
+
+    s = sub.add_parser("seo", help="SEO-Analyse der Seiten: Stand anzeigen (--start: jetzt starten)"); s.add_argument("--start", action="store_true")
+    s.add_argument("--json", dest="json_out", action="store_true"); s.add_argument("--pages", action="store_true", help="Seiten mit ihren Befunden auflisten"); s.add_argument("--tasks", type=int, default=15, help="Anzahl Aufgaben (Standard 15)")
 
     sub.add_parser("sites", help="Eingetragene Websites auflisten (ohne Geheimnisse, ohne Verbindung)")
     p.add_argument("--timeout", type=int, help="Sekunden pro Anfrage (Standard 120 oder WP_TIMEOUT)")
@@ -693,6 +744,8 @@ def main():
         history_command(c, a)
     elif a.cmd in ("scan", "vulns", "scan-files"):
         scan_command(c, a)
+    elif a.cmd == "seo":
+        seo_command(c, a)
     else:
         route = "post-types" if a.cmd.startswith("cpt") else "taxonomies"
         if a.cmd.endswith("-list"):
