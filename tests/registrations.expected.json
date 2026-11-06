@@ -56,8 +56,20 @@
         ],
         [
             "action",
+            "admin_post_bw_bridge_report_send",
+            "handle_send",
+            10
+        ],
+        [
+            "action",
             "admin_post_bw_bridge_scan_start",
             "handle_scan",
+            10
+        ],
+        [
+            "action",
+            "admin_post_bw_bridge_seo_start",
+            "handle_seo",
             10
         ],
         [
@@ -93,6 +105,12 @@
         [
             "action",
             "bw_bridge_scan_step",
+            "step",
+            10
+        ],
+        [
+            "action",
+            "bw_bridge_seo_step",
             "step",
             10
         ],
@@ -497,6 +515,20 @@
             []
         ],
         [
+            "bw-bridge/v1/seo",
+            "GET",
+            "status_route",
+            "can_manage",
+            []
+        ],
+        [
+            "bw-bridge/v1/seo",
+            "POST",
+            "start_route",
+            "can_manage",
+            []
+        ],
+        [
             "bw-bridge/v1/status",
             "GET",
             "status",
@@ -651,6 +683,20 @@
             "bw_bridge_plugins_install",
             "boolean",
             0,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_report_mail",
+            "boolean",
+            1,
+            false
+        ],
+        [
+            "bw_bridge_files",
+            "bw_bridge_report_to",
+            "string",
+            "maintenancereport@blickwert.at",
             false
         ],
         [
