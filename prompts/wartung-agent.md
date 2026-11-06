@@ -12,9 +12,9 @@ Führe die Wartung für <Website | alle eingetragenen Websites> nach prompts/war
 
 - **Nur sichere, umkehrbare Schritte selbst erledigen.** Alles, was Inhalte, Benutzer, Zugänge, Kosten oder das Aussehen
   der Website verändert, wird nicht gemacht, sondern als Entscheidung gemeldet.
-- **Jede Änderung wird protokolliert.** Änderungen über die Bridge landen automatisch mit `via: claude` im Wartungsprotokoll.
-  Zusätzlich je Website **eine** Notiz mit `history-note` (was, warum, Aufwand in Minuten), damit der Wartungsbericht die
-  Begründung enthält.
+- **Jede Änderung wird protokolliert.** Änderungen über die Bridge landen automatisch im Wartungsprotokoll (intern
+  `via: claude`, im Bericht als „Support“). Zusätzlich zu jedem Arbeitsgang eine **Notiz** nach den Regeln unten – die
+  Notizen sind der wichtigste Teil des Wartungsberichts, weil sie die Arbeit an der Website zeigen.
 - **Erst prüfen, dann ändern.** Vor jedem Schreiben den aktuellen Stand lesen; Texte zuerst mit `--dry-run`.
 - **Befunde gegenprüfen.** Ein Prüfpunkt ist eine Behauptung, kein Befehl. Auffällige Funde (verdächtiger Code, Abweichungen
   vom Original) mit `scan-files` und Integritätsprüfung einordnen, bevor sie als Problem gemeldet werden.
@@ -27,10 +27,30 @@ Führe die Wartung für <Website | alle eingetragenen Websites> nach prompts/war
    `plugins`.
 3. Sichere Punkte erledigen (Liste unten).
 4. Kontrolle: `audit` und `seo` erneut, Ergebnis mit vorher vergleichen.
-5. Notiz schreiben: `history-note "Wartung durch Claude: …" --area <updates|security|seo|changes> --minutes <n>`.
-   Mehrere Bereiche: je Bereich eine kurze Notiz.
+5. Notizen schreiben (Regeln unten): `history-note "<Text>" --area <updates|security|seo|changes>` – **ohne** `--minutes`.
+   Die Dauer trägt die Betreuerin bzw. der Betreuer im Backend nach (Feld „Dauer“ je Notiz).
 6. Abschluss im Chat (oder als Datei, wohin gewünscht): je Website **Erledigt**, **Geprüft, kein Handlungsbedarf** und
    **Zu entscheiden** (mit Empfehlung und Begründung).
+
+## Notizen: so schreiben
+
+Die Notizen lesen Kund:innen im Wartungsbericht. Sie sollen klingen wie die kurze Notiz einer Betreuerin nach getaner Arbeit.
+
+- **Ein Arbeitsgang = eine Notiz**, je Bereich (Updates, Sicherheit, SEO, Änderungen). Nichts zusammenwürfeln.
+- **1–2 Sätze**, Alltagssprache, sachlich und freundlich. Unpersönlich oder in der Wir-Form („Kontaktformular aktualisiert
+  und getestet.“ / „Wir haben …“). Kein „ich“, kein „Claude“, „Agent“, „KI“ oder „automatisch“.
+- **Was und wozu**, nicht wie: kein Befehl, keine Route, keine ID, kein Dateipfad, keine Zeichenzahlen, keine Prozentwerte
+  aus der Analyse (die stehen schon im Bericht). Seiten mit ihrem Namen nennen.
+- **Nur Erledigtes.** Was nur geprüft wurde, nur dann als Notiz, wenn es für Kund:innen eine Aussage hat („Sicherheitsmeldung
+  geprüft – kein Handlungsbedarf.“). Offene Entscheidungen gehören nicht in Notizen, sondern in die Abschlussmeldung.
+- **Keine Zeitangabe** und keine Schätzung; die Dauer trägt ein Mensch ein.
+- **Sprache der Kund:innen** (Deutsch), auch wenn die Website-Inhalte englisch sind.
+
+| Statt | Besser |
+|---|---|
+| „Wartung durch Claude: meta-set 1/2, _yoast_wpseo_metadesc 152/151 Zeichen, SEO 91 % → 92 %“ | „Für die Seiten ‚Hello world!‘ und ‚Sample Page‘ Beschreibungen für die Google-Suche ergänzt.“ |
+| „Plugin-Update contact-form-7 5.3.1 → 6.2.4.1 via plugin-update“ | „Kontaktformular-Plugin auf die aktuelle Version gebracht und die Startseite danach kontrolliert.“ |
+| „Scan-Befunde geprüft: preg-e in better-restore.php, Fehlalarm“ | „Hinweis der Sicherheitsprüfung zum Backup-Plugin kontrolliert – das Plugin ist unverändert, kein Handlungsbedarf.“ |
 
 ## Darf der Agent selbst erledigen
 
@@ -41,7 +61,7 @@ Führe die Wartung für <Website | alle eingetragenen Websites> nach prompts/war
 | Meta-Beschreibung fehlt oder ist zu kurz/lang (SEO-Plugin vorhanden) | Aus dem sichtbaren Text der Seite (`render <id>`) eine sachliche Beschreibung mit 120–160 Zeichen schreiben, in der Sprache der Seite, ohne Versprechen, die der Text nicht hergibt. Yoast: `meta-set <id> --set _yoast_wpseo_metadesc=… --dry-run`, dann ohne `--dry-run`. Bei Rank Math `rank_math_description`. Nur wo noch **kein** eigener Text steht. |
 | Seitentitel für Suchmaschinen zu lang | Nur wenn ein SEO-Plugin einen eigenen SEO-Titel erlaubt (`_yoast_wpseo_title`) und noch keiner gesetzt ist; der sichtbare Seitentitel bleibt unverändert. |
 | Bilder ohne Alternativtext (Mediathek) | Nur wenn aus Dateiname, Bildtitel oder Umgebung eindeutig erkennbar ist, was das Bild zeigt; sonst melden. |
-| Notizen zu geprüften Fehlalarmen | z. B. Abweichung vom Original durch den Hoster, Musterdaten einer Sandbox – als Notiz festhalten. |
+| Geprüfte Fehlalarme | Kurz als Notiz für Kund:innen („… kontrolliert, kein Handlungsbedarf“); technische Einzelheiten nur in die Abschlussmeldung. |
 
 ## Nicht selbst, sondern melden
 
