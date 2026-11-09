@@ -15,6 +15,7 @@ final class BW_WP_Bridge {
 		BW_Bridge_Content_Types::init();
 		BW_Bridge_Settings::init();
 		BW_Bridge_Key::init();
+		BW_Bridge_Reader::init();
 		BW_Bridge_Log::init();
 		BW_Bridge_Scan::init();
 		BW_Bridge_Maintenance::init();
@@ -26,7 +27,7 @@ final class BW_WP_Bridge {
 		register_rest_route( self::NS, '/status', [
 			'methods'             => 'GET',
 			'callback'            => [ __CLASS__, 'status' ],
-			'permission_callback' => $admin,
+			'permission_callback' => [ __CLASS__, 'can_read' ],
 		] );
 
 		// Öffentlich, gibt nur Ja/Nein-Werte aus: hilft, wenn die Anmeldung nicht ankommt.
@@ -53,6 +54,11 @@ final class BW_WP_Bridge {
 		return current_user_can( 'manage_options' );
 	}
 
+	/** Administrator oder Lesezugang (BW_Bridge_Reader): nur für lesende Routen und die freigegebenen Aktionen. */
+	public static function can_read() {
+		return BW_Bridge_Reader::can_read();
+	}
+
 	public static function status( $request = null ) {
 		$info = BW_Bridge_Key::summary( $request );
 		// Ohne passenden Schlüssel nur Angaben zur Identifikation der Website (damit die Verwechslung erkennbar ist).
@@ -62,7 +68,7 @@ final class BW_WP_Bridge {
 		$el = BW_Bridge_Elementor::elementor();
 		return rest_ensure_response( $info + [
 			'bridge'        => self::VERSION,
-			'features'      => [ 'elementor-texts', 'elementor-backups', 'elementor-dry-run', 'search', 'translations', 'translation-link', 'theme-builder-refresh', 'render', 'meta', 'batch', 'plugins', 'connection-key', 'acf-schema', 'history', 'audit', 'scan' ],
+			'features'      => [ 'elementor-texts', 'elementor-backups', 'elementor-dry-run', 'search', 'translations', 'translation-link', 'theme-builder-refresh', 'render', 'meta', 'batch', 'plugins', 'connection-key', 'acf-schema', 'history', 'audit', 'scan', 'reader' ],
 			'wordpress'     => get_bloginfo( 'version' ),
 			'elementor'     => defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : null,
 			'elementor_pro' => defined( 'ELEMENTOR_PRO_VERSION' ) ? ELEMENTOR_PRO_VERSION : null,

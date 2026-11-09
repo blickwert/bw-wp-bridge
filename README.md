@@ -32,7 +32,7 @@ dazu über dieses Plugin:
 | `GET post-types`, `POST/DELETE post-types/{slug}` | eigene Post Types anlegen/ändern/löschen (ohne Code) |
 | `GET taxonomies`, `POST/DELETE taxonomies/{slug}` | eigene Taxonomien anlegen/ändern/löschen |
 
-Alle Routen verlangen einen angemeldeten **Administrator**. Die Anmeldung läuft über WordPress-**Anwendungspasswörter**.
+Alle Routen verlangen einen angemeldeten **Administrator**, ein Teil davon auch den **Lesezugang** (siehe unten). Die Anmeldung läuft über WordPress-**Anwendungspasswörter**.
 
 ## Einrichtung
 
@@ -183,6 +183,23 @@ wp_bridge.py history-note "Kontaktformular-Empfänger umgestellt" --area changes
 wp_bridge.py report --period previous -o wartung.json      # Daten für den Wartungsbericht
 wp_bridge.py audit                                          # Sicherheits- und SEO-Prüfung
 ```
+
+## Lesezugang für echte Kundenseiten (ab 1.8)
+
+Für das Verwaltungstool (BW Office) und den Support-Assistenten, die auf der **echten** Website lesen sollen, ohne Administrator zu sein.
+
+*Einstellungen › BW WP Bridge › Lesezugang (BW Office) › „Lesezugang anlegen“* legt den Benutzer `bw-office` mit der Rolle
+**BW Bridge Lesezugang** (`bw_bridge_reader`, Rechte nur `read` und `bw_bridge_read`) an, erzeugt das Anwendungspasswort `bw-office`
+und zeigt die Zugangsdaten einmal an. „Zugang sperren“ löscht das Anwendungspasswort.
+
+| Der Lesezugang darf | Routen |
+|---|---|
+| lesen | `status`, `history`, `history/report`, `audit`, `scan`, `plugins` (Liste), `search` (nie in Post-Meta), `render/{id}` |
+| handeln (harmlos, protokolliert) | `history/notes` (Notiz schreiben), `scan` POST (Prüfung starten), `elementor/clear-cache` |
+
+Alles andere (Layouts, Texte, Meta, Stapel, Plugins installieren, Theme-Dateien, Post Types …) bleibt Administratoren vorbehalten.
+`render` ruft die Seite ohne Anmeldung ab und zeigt damit nur Öffentliches. `search` findet auch Entwürfe und private Beiträge, aber nie Post-Meta.
+Ist ein Verbindungsschlüssel eingerichtet, gilt er auch für den Lesezugang. Beim Löschen des Plugins wird die Rolle entfernt.
 
 ## Verbindungsschlüssel (empfohlen)
 

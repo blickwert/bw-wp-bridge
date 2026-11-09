@@ -18,7 +18,7 @@ final class BW_Bridge_Audit {
 		register_rest_route( BW_WP_Bridge::NS, '/audit', [
 			'methods'             => 'GET',
 			'callback'            => [ __CLASS__, 'route' ],
-			'permission_callback' => [ 'BW_WP_Bridge', 'can_manage' ],
+			'permission_callback' => [ 'BW_WP_Bridge', 'can_read' ],
 		] );
 	}
 

@@ -17,7 +17,7 @@ final class BW_Bridge_History {
 	const NOTE_AREAS = [ 'updates', 'security', 'seo', 'changes' ];
 
 	public static function register_routes() {
-		$admin  = [ 'BW_WP_Bridge', 'can_manage' ];
+		$admin  = [ 'BW_WP_Bridge', 'can_read' ]; // alle Routen hier auch für den Lesezugang
 		$range  = [
 			'period' => [ 'type' => 'string', 'enum' => [ 'current', 'previous', 'year', 'previous-year' ] ],
 			'from'   => [ 'type' => 'string' ],
