@@ -115,6 +115,7 @@ final class BW_Bridge_Settings {
 			echo '<div class="notice notice-warning inline"><p>Die wp-config.php sperrt Dateiänderungen (<code>DISALLOW_FILE_EDIT</code> / <code>DISALLOW_FILE_MODS</code>). Schreiben ist deshalb nicht möglich, Lesen schon.</p></div>';
 		}
 		BW_Bridge_Key::render_section();
+		BW_Bridge_Reader::render_section();
 		echo '<form method="post" action="options.php">';
 		settings_fields( self::GROUP );
 		echo '<table class="form-table" role="presentation"><tbody>';

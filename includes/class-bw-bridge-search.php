@@ -16,7 +16,7 @@ final class BW_Bridge_Search {
 		register_rest_route( BW_WP_Bridge::NS, '/search', [
 			'methods'             => 'GET',
 			'callback'            => [ __CLASS__, 'search' ],
-			'permission_callback' => $admin,
+			'permission_callback' => [ 'BW_WP_Bridge', 'can_read' ],
 		] );
 		register_rest_route( BW_WP_Bridge::NS, '/translations/(?P<id>\d+)', [
 			[ 'methods' => 'GET', 'callback' => [ __CLASS__, 'translations' ], 'permission_callback' => $admin ],
@@ -25,7 +25,7 @@ final class BW_Bridge_Search {
 		register_rest_route( BW_WP_Bridge::NS, '/render/(?P<id>\d+)', [
 			'methods'             => 'GET',
 			'callback'            => [ __CLASS__, 'render' ],
-			'permission_callback' => $admin,
+			'permission_callback' => [ 'BW_WP_Bridge', 'can_read' ],
 		] );
 	}
 
@@ -43,7 +43,8 @@ final class BW_Bridge_Search {
 		}
 		$limit   = max( 1, min( 200, (int) ( $r->get_param( 'limit' ) ?: 50 ) ) );
 		$context = max( 20, min( 300, (int) ( $r->get_param( 'context' ) ?: 70 ) ) );
-		$meta    = '0' !== (string) $r->get_param( 'meta' );
+		// Der Lesezugang sucht nie in Post-Meta (dort liegen oft Zugangsdaten oder interne Werte von Plugins).
+		$meta    = '0' !== (string) $r->get_param( 'meta' ) && ! BW_Bridge_Reader::is_reader_only();
 		$lang    = (string) $r->get_param( 'lang' );
 		$types   = array_filter( array_map( 'sanitize_key', explode( ',', (string) $r->get_param( 'types' ) ) ) );
 

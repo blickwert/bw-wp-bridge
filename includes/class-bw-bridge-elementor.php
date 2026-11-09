@@ -55,7 +55,7 @@ final class BW_Bridge_Elementor {
 		register_rest_route( BW_WP_Bridge::NS, '/elementor/clear-cache', [
 			'methods'             => 'POST',
 			'callback'            => [ __CLASS__, 'clear_cache' ],
-			'permission_callback' => $admin,
+			'permission_callback' => [ 'BW_WP_Bridge', 'can_read' ], // auch Lesezugang: harmlos, erzeugt nur das CSS neu
 		] );
 	}
 

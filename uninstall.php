@@ -16,6 +16,9 @@ foreach ( [ 'bw_bridge_log_db', 'bw_bridge_log_db_days', 'bw_bridge_log_keep_day
 // Sicherungen der Elementor-Layouts (Post-Meta) entfernen.
 delete_post_meta_by_key( '_bw_bridge_el_backup' );
 
+// Rolle des Lesezugangs entfernen (der Benutzer „bw-office“ bleibt, er hat danach keine Rolle mehr).
+remove_role( 'bw_bridge_reader' );
+
 // Wartungsprotokoll: Tabelle und Cron entfernen. Die Archivdateien unter wp-content/uploads/bw-bridge-log-…/ bleiben (wie die Sicherungen).
 global $wpdb;
 $wpdb->query( 'DROP TABLE IF EXISTS ' . $wpdb->prefix . 'bw_bridge_log' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery

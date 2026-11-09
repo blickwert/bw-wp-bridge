@@ -48,7 +48,7 @@ final class BW_Bridge_Plugins {
 	/* ------------------------------------------------------------------ */
 
 	public static function perm_list() {
-		return current_user_can( 'manage_options' ) && current_user_can( 'activate_plugins' );
+		return ( current_user_can( 'manage_options' ) && current_user_can( 'activate_plugins' ) ) || BW_Bridge_Reader::is_reader_only();
 	}
 
 	public static function perm_install() {

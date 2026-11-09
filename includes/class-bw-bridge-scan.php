@@ -68,8 +68,8 @@ final class BW_Bridge_Scan {
 
 	public static function register_routes() {
 		register_rest_route( BW_WP_Bridge::NS, '/scan', [
-			[ 'methods' => 'GET', 'callback' => [ __CLASS__, 'status_route' ], 'permission_callback' => [ 'BW_WP_Bridge', 'can_manage' ] ],
-			[ 'methods' => 'POST', 'callback' => [ __CLASS__, 'start_route' ], 'permission_callback' => [ 'BW_WP_Bridge', 'can_manage' ] ],
+			[ 'methods' => 'GET', 'callback' => [ __CLASS__, 'status_route' ], 'permission_callback' => [ 'BW_WP_Bridge', 'can_read' ] ],
+			[ 'methods' => 'POST', 'callback' => [ __CLASS__, 'start_route' ], 'permission_callback' => [ 'BW_WP_Bridge', 'can_read' ] ],
 		] );
 	}
 

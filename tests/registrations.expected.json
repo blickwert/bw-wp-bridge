@@ -50,6 +50,18 @@
         ],
         [
             "action",
+            "admin_post_bw_bridge_reader_generate",
+            "handle_generate",
+            10
+        ],
+        [
+            "action",
+            "admin_post_bw_bridge_reader_remove",
+            "handle_remove",
+            10
+        ],
+        [
+            "action",
             "admin_post_bw_bridge_report_json",
             "handle_json",
             10
@@ -118,6 +130,12 @@
             "action",
             "deleted_theme",
             "on_theme_deleted",
+            10
+        ],
+        [
+            "action",
+            "init",
+            "ensure_role",
             10
         ],
         [
@@ -265,7 +283,7 @@
             "bw-bridge/v1/audit",
             "GET",
             "route",
-            "can_manage",
+            "can_read",
             []
         ],
         [
@@ -328,7 +346,7 @@
             "bw-bridge/v1/elementor/clear-cache",
             "POST",
             "clear_cache",
-            "can_manage",
+            "can_read",
             []
         ],
         [
@@ -363,7 +381,7 @@
             "bw-bridge/v1/history",
             "GET",
             "list_route",
-            "can_manage",
+            "can_read",
             [
                 "period",
                 "from",
@@ -382,7 +400,7 @@
             "bw-bridge/v1/history/notes",
             "POST",
             "note_route",
-            "can_manage",
+            "can_read",
             [
                 "text",
                 "area",
@@ -396,7 +414,7 @@
             "bw-bridge/v1/history/report",
             "GET",
             "report_route",
-            "can_manage",
+            "can_read",
             [
                 "period",
                 "from",
@@ -472,35 +490,35 @@
             "bw-bridge/v1/render/(?P<id>\\d+)",
             "GET",
             "render",
-            "can_manage",
+            "can_read",
             []
         ],
         [
             "bw-bridge/v1/scan",
             "GET",
             "status_route",
-            "can_manage",
+            "can_read",
             []
         ],
         [
             "bw-bridge/v1/scan",
             "POST",
             "start_route",
-            "can_manage",
+            "can_read",
             []
         ],
         [
             "bw-bridge/v1/search",
             "GET",
             "search",
-            "can_manage",
+            "can_read",
             []
         ],
         [
             "bw-bridge/v1/status",
             "GET",
             "status",
-            "can_manage",
+            "can_read",
             []
         ],
         [
