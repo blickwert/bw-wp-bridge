@@ -68,12 +68,20 @@ final class BW_Bridge_Key {
 		return '' !== $stored && '' !== (string) $key && hash_equals( $stored, self::hash( $key ) );
 	}
 
+	/**
+	 * Wird der gesendete Schlüssel für den angemeldeten Benutzer angenommen? Der Hauptschlüssel gilt für alle,
+	 * der eigene Schlüssel des Lesezugangs nur für Benutzer, die ausschließlich die Lese-Rolle haben.
+	 */
+	public static function accepts( $key ) {
+		return self::is_valid( $key ) || ( BW_Bridge_Reader::is_reader_only() && BW_Bridge_Reader::is_valid_key( $key ) );
+	}
+
 	/** Angaben zur Website für status (nicht geheim). */
 	public static function summary( $request = null ) {
 		$sent = $request && method_exists( $request, 'get_header' ) ? (string) $request->get_header( self::HEADER ) : '';
 		return [
 			'site'  => [ 'name' => get_bloginfo( 'name' ), 'url' => home_url( '/' ), 'id' => self::site_id() ?: null ],
-			'key'   => [ 'required' => self::is_active(), 'valid' => ! self::is_active() || self::is_valid( $sent ), 'all_requests' => (bool) get_option( self::OPT_ALL, 0 ) ],
+			'key'   => [ 'required' => self::is_active(), 'valid' => ! self::is_active() || self::accepts( $sent ), 'all_requests' => (bool) get_option( self::OPT_ALL, 0 ) ],
 		];
 	}
 
@@ -96,7 +104,7 @@ final class BW_Bridge_Key {
 				return $result;
 			}
 		}
-		if ( self::is_valid( (string) $request->get_header( self::HEADER ) ) ) {
+		if ( self::accepts( (string) $request->get_header( self::HEADER ) ) ) {
 			return $result;
 		}
 		return new WP_Error(

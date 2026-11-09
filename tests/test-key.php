@@ -19,6 +19,7 @@ function did_action( $t ) { return 'application_password_did_authenticate' === $
 function get_bloginfo( $s = '' ) { return 'Testseite'; } function home_url( $p = '' ) { return 'https://example.test' . $p; }
 function is_wp_error( $x ) { return $x instanceof WP_Error; }
 function get_current_user_id() { return 1; }
+function current_user_can( $c ) { return 'manage_options' === $c; } // Administrator
 class WP_Error { public $code, $msg, $data; function __construct( $c = '', $m = '', $d = [] ) { $this->code = $c; $this->msg = $m; $this->data = $d; } function get_error_code() { return $this->code; } function get_error_message() { return $this->msg; } }
 class Req { public $route, $headers; function __construct( $route, $key = null ) { $this->route = $route; $this->headers = $key === null ? [] : [ 'x_bw_bridge_key' => $key ]; } function get_route() { return $this->route; } function get_header( $n ) { return $this->headers[ $n ] ?? null; } }
 
