@@ -8,8 +8,10 @@
  *   handeln: history/notes (Notiz schreiben), scan (Prüfung starten), elementor/clear-cache (CSS neu erzeugen)
  * Alles andere bleibt Administratoren vorbehalten. Der Verbindungsschlüssel gilt auch für diesen Zugang.
  *
- * Im Backend (Einstellungen › BW WP Bridge › Lesezugang) legt ein Knopf den Benutzer „bw-office“ mit dieser Rolle
- * und das Anwendungspasswort „bw-office“ an und zeigt die Zugangsdaten einmal an.
+ * Im Backend (Einstellungen › BW WP Bridge › Lesezugang) legt ein Knopf den Benutzer „bw-office“ mit dieser Rolle,
+ * das Anwendungspasswort „bw-office“ und einen eigenen Verbindungsschlüssel (bwr_…) an und zeigt die Zugangsdaten
+ * einmal an. Der eigene Schlüssel gilt nur für Benutzer mit ausschließlich dieser Rolle; der Hauptschlüssel für
+ * Claude bleibt davon unberührt.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -21,6 +23,9 @@ final class BW_Bridge_Reader {
 	const LOGIN = 'bw-office';
 	const EMAIL = 'bw-office@blickwert.at';
 	const APP   = 'bw-office';
+
+	/** Hash des eigenen Verbindungsschlüssels des Lesezugangs. */
+	const OPT_KEY = 'bw_bridge_reader_key_hash';
 
 	public static function init() {
 		add_action( 'init', [ __CLASS__, 'ensure_role' ] );
@@ -86,6 +91,18 @@ final class BW_Bridge_Reader {
 		}
 	}
 
+	/** Neuen eigenen Schlüssel erzeugen (der alte wird ungültig). Klartext nur jetzt. */
+	public static function generate_key() {
+		$key = 'bwr_' . wp_generate_password( 40, false );
+		update_option( self::OPT_KEY, BW_Bridge_Key::hash( $key ), false );
+		return $key;
+	}
+
+	public static function is_valid_key( $key ) {
+		$stored = (string) get_option( self::OPT_KEY, '' );
+		return '' !== $stored && '' !== (string) $key && hash_equals( $stored, BW_Bridge_Key::hash( $key ) );
+	}
+
 	public static function exists() {
 		return (bool) get_user_by( 'login', self::LOGIN );
 	}
@@ -100,7 +117,7 @@ final class BW_Bridge_Reader {
 		}
 		check_admin_referer( 'bw_bridge_reader' );
 		$password = self::create_app_password( self::user_id() );
-		set_transient( 'bw_bridge_reader_new_' . get_current_user_id(), [ 'app_password' => $password ], 120 );
+		set_transient( 'bw_bridge_reader_new_' . get_current_user_id(), [ 'app_password' => $password, 'key' => self::generate_key() ], 120 );
 		wp_safe_redirect( admin_url( 'options-general.php?page=' . BW_Bridge_Settings::PAGE ) );
 		exit;
 	}
@@ -115,6 +132,7 @@ final class BW_Bridge_Reader {
 		if ( $user ) {
 			self::revoke( (int) $user->ID );
 		}
+		delete_option( self::OPT_KEY );
 		wp_safe_redirect( admin_url( 'options-general.php?page=' . BW_Bridge_Settings::PAGE ) );
 		exit;
 	}
@@ -134,23 +152,22 @@ final class BW_Bridge_Reader {
 				'USER=' . self::LOGIN,
 				'APP_PASSWORD=' . ( '' !== $new['app_password'] ? $new['app_password'] : '<Anwendungspasswörter sind hier nicht verfügbar>' ),
 			];
+			if ( ! empty( $new['key'] ) ) {
+				$lines[] = 'BRIDGE_KEY=' . $new['key'];
+			}
 			if ( BW_Bridge_Key::is_active() ) {
 				$lines[] = 'BRIDGE_SITE=' . BW_Bridge_Key::site_id();
 			}
-			echo '<div class="notice notice-success inline"><p><strong>Zugangsdaten – werden nur jetzt angezeigt:</strong></p><p><textarea readonly class="large-text code" rows="4" style="max-width:48em" onfocus="this.select()">' . esc_textarea( implode( "\n", $lines ) ) . '</textarea></p><p>Im Verwaltungstool beim Wartungsauftrag eintragen. Nicht in einen Chat einfügen.';
-			if ( BW_Bridge_Key::is_active() ) {
-				echo ' Der Verbindungsschlüssel gilt auch für diesen Zugang: denselben Schlüssel wie für Claude eintragen.';
-			}
-			echo '</p></div>';
+			echo '<div class="notice notice-success inline"><p><strong>Zugangsdaten – werden nur jetzt angezeigt:</strong></p><p><textarea readonly class="large-text code" rows="5" style="max-width:48em" onfocus="this.select()">' . esc_textarea( implode( "\n", $lines ) ) . '</textarea></p><p>Im Verwaltungstool beim Wartungsauftrag eintragen: Adresse, Benutzer, Anwendungspasswort und Verbindungsschlüssel (BRIDGE_KEY, gilt nur für diesen Lesezugang). Nicht in einen Chat einfügen.</p></div>';
 		}
 		echo '<p>Status: <strong>' . ( self::exists() ? 'Benutzer vorhanden' : 'nicht eingerichtet' ) . '</strong></p>';
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin-right:12px">';
 		wp_nonce_field( 'bw_bridge_reader' );
 		echo '<input type="hidden" name="action" value="bw_bridge_reader_generate">';
-		submit_button( self::exists() ? 'Neues Anwendungspasswort (das alte wird ungültig)' : 'Lesezugang anlegen', 'secondary', 'submit', false );
+		submit_button( self::exists() ? 'Neue Zugangsdaten (Passwort und Schlüssel, die alten werden ungültig)' : 'Lesezugang anlegen', 'secondary', 'submit', false );
 		echo '</form>';
 		if ( self::exists() ) {
-			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block" onsubmit="return confirm(\'Lesezugang sperren? Das Anwendungspasswort wird gelöscht.\')">';
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block" onsubmit="return confirm(\'Lesezugang sperren? Anwendungspasswort und Schlüssel des Lesezugangs werden gelöscht.\')">';
 			wp_nonce_field( 'bw_bridge_reader' );
 			echo '<input type="hidden" name="action" value="bw_bridge_reader_remove">';
 			submit_button( 'Zugang sperren', 'delete', 'submit', false );

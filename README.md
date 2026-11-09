@@ -190,7 +190,8 @@ Für das Verwaltungstool (BW Office) und den Support-Assistenten, die auf der **
 
 *Einstellungen › BW WP Bridge › Lesezugang (BW Office) › „Lesezugang anlegen“* legt den Benutzer `bw-office` mit der Rolle
 **BW Bridge Lesezugang** (`bw_bridge_reader`, Rechte nur `read` und `bw_bridge_read`) an, erzeugt das Anwendungspasswort `bw-office`
-und zeigt die Zugangsdaten einmal an. „Zugang sperren“ löscht das Anwendungspasswort.
+und einen **eigenen Verbindungsschlüssel** (`bwr_…`, ab 1.9) und zeigt die Zugangsdaten einmal an. „Neue Zugangsdaten“ erneuert Passwort
+und Schlüssel, „Zugang sperren“ löscht beide.
 
 | Der Lesezugang darf | Routen |
 |---|---|
@@ -199,7 +200,9 @@ und zeigt die Zugangsdaten einmal an. „Zugang sperren“ löscht das Anwendung
 
 Alles andere (Layouts, Texte, Meta, Stapel, Plugins installieren, Theme-Dateien, Post Types …) bleibt Administratoren vorbehalten.
 `render` ruft die Seite ohne Anmeldung ab und zeigt damit nur Öffentliches. `search` findet auch Entwürfe und private Beiträge, aber nie Post-Meta.
-Ist ein Verbindungsschlüssel eingerichtet, gilt er auch für den Lesezugang. Beim Löschen des Plugins wird die Rolle entfernt.
+Ist ein Verbindungsschlüssel eingerichtet, braucht auch der Lesezugang einen: entweder seinen eigenen (`bwr_…`) oder den Hauptschlüssel.
+Der eigene Schlüssel gilt nur für Benutzer, die ausschließlich die Lese-Rolle haben; mit einem Administratorzugang wird er abgelehnt.
+So muss der Hauptschlüssel von Claude nicht weitergegeben werden. Beim Löschen des Plugins werden Rolle und Schlüssel entfernt.
 
 ## Verbindungsschlüssel (empfohlen)
 

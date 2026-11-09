@@ -9,7 +9,7 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	exit;
 }
 
-foreach ( [ 'bw_bridge_log_db', 'bw_bridge_log_db_days', 'bw_bridge_log_keep_days', 'bw_bridge_contract_start', 'bw_bridge_contract_rhythm', 'bw_bridge_audit_last', 'bw_bridge_scan_db', 'bw_bridge_scan_state', 'bw_bridge_scan_vulns', 'bw_bridge_scan_files', 'bw_bridge_scan_vulns_on', 'bw_bridge_files_read', 'bw_bridge_files_write', 'bw_bridge_files_parent', 'bw_bridge_plugins_install', 'bw_bridge_key_hash', 'bw_bridge_site_id', 'bw_bridge_key_all', 'bw_bridge_flush_rewrite' ] as $bw_bridge_option ) {
+foreach ( [ 'bw_bridge_log_db', 'bw_bridge_log_db_days', 'bw_bridge_log_keep_days', 'bw_bridge_contract_start', 'bw_bridge_contract_rhythm', 'bw_bridge_audit_last', 'bw_bridge_scan_db', 'bw_bridge_scan_state', 'bw_bridge_scan_vulns', 'bw_bridge_scan_files', 'bw_bridge_scan_vulns_on', 'bw_bridge_files_read', 'bw_bridge_files_write', 'bw_bridge_files_parent', 'bw_bridge_plugins_install', 'bw_bridge_key_hash', 'bw_bridge_reader_key_hash', 'bw_bridge_site_id', 'bw_bridge_key_all', 'bw_bridge_flush_rewrite' ] as $bw_bridge_option ) {
 	delete_option( $bw_bridge_option );
 }
 
