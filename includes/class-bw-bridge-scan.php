@@ -361,7 +361,8 @@ final class BW_Bridge_Scan {
 				continue; // nur Zeitstempel geändert
 			}
 			$k ? $modified[] = $rel : $added[] = $rel;
-			if ( is_string( $content ) && self::is_php( $rel ) && ( $hits = self::patterns( $content ) ) ) {
+			// Die eigene Datei enthält die Suchmuster selbst und wird deshalb nicht auf sie geprüft.
+			if ( is_string( $content ) && self::is_php( $rel ) && ! self::is_self( $abs ) && ( $hits = self::patterns( $content ) ) ) {
 				$suspicious[ $rel ] = $hits;
 			}
 		}
@@ -461,6 +462,12 @@ final class BW_Bridge_Scan {
 			return sprintf( 'Version %s → %s%s', $prev_version, $version, $logged ? '' : ', Update nicht im Protokoll' );
 		}
 		return $logged;
+	}
+
+	/** Ist die Datei dieser Scanner selbst? (Sie enthält die Muster als Text.) */
+	public static function is_self( $abs ) {
+		$self = realpath( __FILE__ );
+		return false !== $self && realpath( (string) $abs ) === $self;
 	}
 
 	/** Eindeutige Malware-Muster (bewusst wenige, damit es kaum Fehlalarme gibt). Rückgabe: Liste der Treffer. */
