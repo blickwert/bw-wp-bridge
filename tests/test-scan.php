@@ -85,6 +85,7 @@ check( 'eval($_POST) erkannt', in_array( 'eval-input', BW_Bridge_Scan::patterns(
 check( '$_GET[a]($_GET[b]) erkannt', in_array( 'input-call', BW_Bridge_Scan::patterns( '<?php $_GET["f"]($_GET["c"]);' ), true ) );
 check( 'Webshell-Namen erkannt', in_array( 'shell-names', BW_Bridge_Scan::patterns( '<?php // FilesMan' ), true ) );
 check( 'Normales base64_decode ist kein Treffer', [] === BW_Bridge_Scan::patterns( '<?php $img = base64_decode( $data ); echo esc_html( $_POST["name"] ?? "" );' ) );
+check( 'Eigene Scanner-Datei würde selbst anschlagen, wird aber als eigene erkannt', [] !== BW_Bridge_Scan::patterns( (string) file_get_contents( __DIR__ . '/../includes/class-bw-bridge-scan.php' ) ) && BW_Bridge_Scan::is_self( __DIR__ . '/../includes/class-bw-bridge-scan.php' ) && ! BW_Bridge_Scan::is_self( __FILE__ ) );
 
 /* ---------- Erster Lauf: Ersterfassung ---------- */
 $GLOBALS['core_sums']['7.1'] = core_sums();
