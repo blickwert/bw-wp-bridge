@@ -164,7 +164,7 @@ final class BW_Bridge_Maintenance {
 		// Prüfung
 		echo '<section class="bwm-grid">';
 		foreach ( [ 'security' => 'Sicherheitsprüfung (aktueller Stand)', 'seo' => 'SEO-Prüfung (aktueller Stand)' ] as $key => $title ) {
-			echo '<div class="bwm-card"><div class="bwm-card-head"><h2>' . esc_html( $title ) . '</h2></div><ul class="bwm-checks">';
+			echo '<div class="bwm-card"' . ( 'security' === $key ? ' id="bwm-audit"' : '' ) . '><div class="bwm-card-head"><h2>' . esc_html( $title ) . '</h2></div><ul class="bwm-checks">';
 			$checks = $d['audit'][ $key ];
 			usort( $checks, static fn( $a, $b ) => array_search( $a['status'], [ 'fail', 'warn', 'info', 'ok' ], true ) <=> array_search( $b['status'], [ 'fail', 'warn', 'info', 'ok' ], true ) );
 			foreach ( $checks as $c ) {
@@ -180,13 +180,13 @@ final class BW_Bridge_Maintenance {
 		}
 
 		// Updates
-		echo '<section class="bwm-card"><div class="bwm-card-head"><h2><i class="bwm-dot is-updates"></i>Updates</h2><span class="bwm-muted">' . count( $d['sections']['updates'] ) . ' Einträge</span></div>';
+		echo '<section class="bwm-card" id="bwm-updates"><div class="bwm-card-head"><h2><i class="bwm-dot is-updates"></i>Updates</h2><span class="bwm-muted">' . count( $d['sections']['updates'] ) . ' Einträge</span></div>';
 		self::table( $d['sections']['updates'], [ 'date' => 'Datum', 'message' => 'Was', 'via' => 'Wie', 'user' => 'Benutzer' ], 'Keine Updates in diesem Zeitraum.' );
 		echo '</section>';
 
 		// Sicherheit
 		$s = $d['sections']['security'];
-		echo '<section class="bwm-card"><div class="bwm-card-head"><h2><i class="bwm-dot is-security"></i>Sicherheit</h2></div><div class="bwm-cols">';
+		echo '<section class="bwm-card" id="bwm-security"><div class="bwm-card-head"><h2><i class="bwm-dot is-security"></i>Sicherheit</h2></div><div class="bwm-cols">';
 		echo '<div><h3>Anmeldungen</h3>';
 		if ( $s['logins'] ) {
 			echo '<table class="bwm-table"><thead><tr><th>Benutzer</th><th class="num">Anmeldungen</th><th>zuletzt</th></tr></thead><tbody>';
@@ -210,13 +210,13 @@ final class BW_Bridge_Maintenance {
 		echo '</section>';
 
 		// SEO
-		echo '<section class="bwm-card"><div class="bwm-card-head"><h2><i class="bwm-dot is-seo"></i>SEO</h2></div>';
+		echo '<section class="bwm-card" id="bwm-seo"><div class="bwm-card-head"><h2><i class="bwm-dot is-seo"></i>SEO</h2></div>';
 		self::table( $d['sections']['seo'], [ 'date' => 'Datum', 'message' => 'Was', 'via' => 'Wie', 'user' => 'Benutzer' ], 'Keine SEO-relevanten Einstellungsänderungen. Den aktuellen Stand zeigt die SEO-Prüfung oben.' );
 		echo '</section>';
 
 		// Manuelle Änderungen
 		$c = $d['sections']['changes'];
-		echo '<section class="bwm-card"><div class="bwm-card-head"><h2><i class="bwm-dot is-changes"></i>Manuelle Änderungen</h2><span class="bwm-muted">' . (int) $c['objects_total'] . ' Inhalte/Routen</span></div>';
+		echo '<section class="bwm-card" id="bwm-changes"><div class="bwm-card-head"><h2><i class="bwm-dot is-changes"></i>Manuelle Änderungen</h2><span class="bwm-muted">' . (int) $c['objects_total'] . ' Inhalte/Routen</span></div>';
 		if ( $c['objects'] ) {
 			echo '<table class="bwm-table"><thead><tr><th>Inhalt</th><th>Art</th><th>Aktionen</th><th class="num">Anzahl</th><th>Zeitraum</th><th>Wie / wer</th></tr></thead><tbody>';
 			foreach ( array_slice( $c['objects'], 0, 40 ) as $o ) {
@@ -237,7 +237,7 @@ final class BW_Bridge_Maintenance {
 		echo '</section>';
 
 		// Notizen
-		echo '<section class="bwm-card"><div class="bwm-card-head"><h2>Notizen</h2><span class="bwm-muted">' . count( $d['notes'] ) . ( $k['minutes'] ? ' · Aufwand ' . esc_html( self::hours( $k['minutes'] ) ) : '' ) . '</span></div>';
+		echo '<section class="bwm-card" id="bwm-notes"><div class="bwm-card-head"><h2>Notizen</h2><span class="bwm-muted">' . count( $d['notes'] ) . ( $k['minutes'] ? ' · Aufwand ' . esc_html( self::hours( $k['minutes'] ) ) : '' ) . '</span></div>';
 		if ( $d['notes'] ) {
 			echo '<table class="bwm-table"><thead><tr><th>Datum</th><th>Bereich</th><th>Notiz</th><th class="num">Min.</th><th>Ticket</th><th>Von</th></tr></thead><tbody>';
 			foreach ( $d['notes'] as $n ) {
@@ -405,7 +405,7 @@ final class BW_Bridge_Maintenance {
 
 	private static function tile( $label, $value, $sub, $key, $status = null ) {
 		printf(
-			'<div class="bwm-tile is-%1$s"><span class="bwm-tile-label">%2$s</span><span class="bwm-tile-value">%3$s</span><span class="bwm-tile-sub">%4$s%5$s</span></div>',
+			'<a class="bwm-tile is-%1$s" href="#bwm-%1$s"><span class="bwm-tile-label">%2$s</span><span class="bwm-tile-value">%3$s</span><span class="bwm-tile-sub">%4$s%5$s</span></a>',
 			esc_attr( $key ),
 			esc_html( $label ),
 			esc_html( number_format_i18n( (int) $value ) ),
@@ -617,7 +617,9 @@ final class BW_Bridge_Maintenance {
 .bwm-custom{margin-left:auto;display:flex;gap:6px;align-items:center}
 .bwm-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:12px}
 .bwm-tile,.bwm-card{background:var(--bwm-surface);border:1px solid var(--bwm-line);border-radius:12px}
-.bwm-tile{padding:14px 16px;display:flex;flex-direction:column;gap:2px;border-left:3px solid var(--bwm-line)}
+.bwm-tile{padding:14px 16px;display:flex;flex-direction:column;gap:2px;border-left:3px solid var(--bwm-line);color:inherit;text-decoration:none;cursor:pointer;transition:box-shadow .15s}
+a.bwm-tile:hover,a.bwm-tile:focus-visible{box-shadow:0 2px 10px rgba(0,0,0,.08);color:inherit}
+.bwm-card[id]{scroll-margin-top:48px}
 .bwm-tile.is-updates{border-left-color:var(--bwm-updates)}.bwm-tile.is-security{border-left-color:var(--bwm-security)}.bwm-tile.is-seo{border-left-color:var(--bwm-seo)}.bwm-tile.is-changes{border-left-color:var(--bwm-changes)}.bwm-tile.is-notes,.bwm-tile.is-audit{border-left-color:var(--bwm-ink-2)}
 .bwm-tile-label{font-size:13px;color:var(--bwm-ink-2)}
 .bwm-tile-value{font-size:30px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
