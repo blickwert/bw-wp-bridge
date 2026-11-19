@@ -613,7 +613,7 @@ def main():
         r = c.request("GET", "bw-bridge/v1/status")
         site, key = r.get("site") or {}, r.get("key") or {}
         if site:
-            note = "kein Schlüssel eingerichtet" if not key.get("required") else ("Schlüssel ok" if key.get("valid") else "SCHLÜSSEL FEHLT ODER FALSCH (WP_BRIDGE_KEY)")
+            note = "kein Schlüssel eingerichtet" if not key.get("required") else ("Schlüssel ok" if key.get("valid") else ("SCHLÜSSEL FALSCH (WP_BRIDGE_KEY)" if key.get("sent") else "SCHLÜSSEL NICHT ANGEKOMMEN (WP_BRIDGE_KEY gesetzt? Header %s)" % key.get("header", "X-BW-Bridge-Key")))
             print("Verbunden mit: %s (%s) · Kennung %s · %s" % (site.get("name"), site.get("url"), site.get("id") or "-", note), file=sys.stderr)
         out(r)
     elif a.cmd == "auth-check":

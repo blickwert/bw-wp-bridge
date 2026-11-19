@@ -710,7 +710,8 @@
             "authorization": true,
             "redirect_authorization": false,
             "php_auth_user": false,
-            "x_wp_authorization": false
+            "x_wp_authorization": false,
+            "bridge_key": false
         },
         "server_php_auth_user": "u"
     }

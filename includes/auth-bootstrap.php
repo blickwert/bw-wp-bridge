@@ -12,6 +12,8 @@ $GLOBALS['bw_bridge_auth_seen'] = [
 	'redirect_authorization' => ! empty( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ),
 	'php_auth_user'          => ! empty( $_SERVER['PHP_AUTH_USER'] ),
 	'x_wp_authorization'     => ! empty( $_SERVER['HTTP_X_WP_AUTHORIZATION'] ),
+	// Verbindungsschlüssel (Header X-BW-Bridge-Key). Fehlt er hier, obwohl der Client ihn sendet, stimmt meist der Header-Name nicht.
+	'bridge_key'             => ! empty( $_SERVER['HTTP_X_BW_BRIDGE_KEY'] ),
 ];
 
 /*

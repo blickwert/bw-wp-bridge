@@ -211,10 +211,13 @@ Website) und ist ein zweiter Faktor neben dem Anwendungspasswort.
 
 1. Einstellungen › BW WP Bridge › **Verbindungsschlüssel › „Schlüssel und Zugangsdaten erzeugen“**. Das Plugin legt dabei den Administrator-Benutzer `claude` (`claude@blickwert.at`) an, falls er fehlt, und erzeugt für ihn das Anwendungspasswort „claude-code“ (ein früheres gleichen Namens wird ersetzt) und zeigt **einmalig** einen fertigen Block mit `WP_<NAME>_URL`, `_USER`, `_APP_PASSWORD`, `_BRIDGE_KEY` und `_BRIDGE_SITE` zum Kopieren an. In der Datenbank liegt nur ein Hash des Schlüssels.
 2. Im Client eintragen: `WP_BRIDGE_KEY=bwk_…` (zusammen mit `WP_URL`, `WP_USER`, `WP_APP_PASSWORD`). Nicht in einen Chat einfügen.
+   Der Client sendet ihn bei jeder Anfrage im Header **`X-BW-Bridge-Key`** – mit Bindestrichen. Eigene Clients (curl, Skripte) nie `x_bw_bridge_key`
+   schreiben: Header mit Unterstrichen verwerfen nginx und viele Proxys stillschweigend, der Schlüssel kommt dann nicht an.
 3. Optional die **Kennung** der Website (8 Zeichen, nicht geheim, steht auf der Einstellungsseite) als `WP_BRIDGE_SITE` eintragen: Der Client prüft dann vor jeder
    Anfrage, ob er mit der richtigen Website verbunden ist, und bricht sonst ab, bevor etwas gesendet wird.
 
 - Ohne Schlüssel (oder mit falschem) antworten alle Bridge-Routen mit `403 bw_bridge_key` und nennen Website und Kennung. Ausgenommen sind `status` (zeigt dann nur Name, Adresse, Kennung) und `auth-check`.
+- Die Meldung unterscheidet: **„Verbindungsschlüssel fehlt“** heißt, es ist gar kein Schlüssel angekommen (meist falscher Header-Name), **„passt nicht“** heißt, der Schlüssel ist falsch. `status` zeigt dasselbe in `key.sent`, `auth-check` in `headers_seen.bridge_key`.
 - `wp_bridge.py status` zeigt: `Verbunden mit: <Name> (<Adresse>) · Kennung … · Schlüssel ok`.
 - Standardmäßig gilt die Prüfung nur für die Bridge-Routen. Mit „Schlüssel für alle REST-Anfragen“ wird sie auf jede REST-Anfrage ausgedehnt, die per Anwendungspasswort kommt.
 - „Neuen Schlüssel erzeugen“ macht den alten ungültig (die Kennung bleibt). „Schlüssel entfernen“ schaltet die Prüfung wieder aus. Ist kein Schlüssel eingerichtet, ändert sich nichts.

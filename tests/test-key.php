@@ -49,6 +49,9 @@ check( 'falscher Schlüssel: 403 bw_bridge_key', code( $K::enforce( null, null, 
 check( 'kein Schlüssel gesendet: 403', code( $K::enforce( null, null, new Req( '/bw-bridge/v1/elementor/12' ) ) ) === 'bw_bridge_key' );
 $e = $K::enforce( null, null, new Req( '/bw-bridge/v1/plugins' ) );
 check( 'Fehlermeldung nennt Website und Kennung', strpos( $e->get_error_message(), 'Testseite' ) !== false && strpos( $e->get_error_message(), $id ) !== false && $e->data['status'] === 403 );
+check( 'kein Schlüssel angekommen: Meldung nennt Header X-BW-Bridge-Key', strpos( $e->get_error_message(), 'fehlt' ) !== false && strpos( $e->get_error_message(), 'X-BW-Bridge-Key' ) !== false && $e->data['key_sent'] === false );
+$e2 = $K::enforce( null, null, new Req( '/bw-bridge/v1/plugins', 'bwk_falsch' ) );
+check( 'falscher Schlüssel: Meldung „passt nicht“, key_sent=true', strpos( $e2->get_error_message(), 'passt nicht' ) !== false && $e2->data['key_sent'] === true );
 check( 'status ist ohne Schlüssel erreichbar', null === $K::enforce( null, null, new Req( '/bw-bridge/v1/status' ) ) );
 check( 'auth-check ist ohne Schlüssel erreichbar', null === $K::enforce( null, null, new Req( '/bw-bridge/v1/auth-check' ) ) );
 check( 'schon beantwortete Anfragen bleiben unberührt', 'x' === $K::enforce( 'x', null, new Req( '/bw-bridge/v1/plugins' ) ) );
@@ -67,6 +70,7 @@ check( 'alle Anfragen: Anwendungspasswort mit Schlüssel erlaubt', null === $K::
 /* 5. status-Angaben */
 $s = $K::summary( new Req( '/bw-bridge/v1/status', 'bwk_falsch' ) );
 check( 'status: falscher Schlüssel → valid=false, Website erkennbar', $s['key']['required'] && ! $s['key']['valid'] && $s['site']['id'] === $id && $s['site']['name'] === 'Testseite' );
+check( 'status: sent/header gemeldet', $s['key']['sent'] === true && $K::summary( new Req( '/x' ) )['key']['sent'] === false && $s['key']['header'] === 'X-BW-Bridge-Key' );
 check( 'status: richtiger Schlüssel → valid=true', $K::summary( new Req( '/x', $key ) )['key']['valid'] === true );
 
 /* 6. Entfernen */
