@@ -23,7 +23,9 @@ final class BW_Bridge_Key {
 	const OPT_HASH   = 'bw_bridge_key_hash';
 	const OPT_SITE   = 'bw_bridge_site_id';
 	const OPT_ALL    = 'bw_bridge_key_all';
-	const HEADER     = 'x_bw_bridge_key';
+	const HEADER     = 'x_bw_bridge_key'; // so liefert WP_REST_Request::get_header() den Namen (klein, Unterstriche)
+	/** Name, unter dem der Client den Schlüssel senden muss: mit Bindestrichen. Header mit Unterstrichen verwerfen nginx und viele Proxys. */
+	const HEADER_NAME = 'X-BW-Bridge-Key';
 	const PUBLIC_ROUTES = [ '/bw-bridge/v1/status', '/bw-bridge/v1/auth-check' ];
 
 	public static function init() {
@@ -81,7 +83,7 @@ final class BW_Bridge_Key {
 		$sent = $request && method_exists( $request, 'get_header' ) ? (string) $request->get_header( self::HEADER ) : '';
 		return [
 			'site'  => [ 'name' => get_bloginfo( 'name' ), 'url' => home_url( '/' ), 'id' => self::site_id() ?: null ],
-			'key'   => [ 'required' => self::is_active(), 'valid' => ! self::is_active() || self::accepts( $sent ), 'all_requests' => (bool) get_option( self::OPT_ALL, 0 ) ],
+			'key'   => [ 'required' => self::is_active(), 'valid' => ! self::is_active() || self::accepts( $sent ), 'sent' => '' !== $sent, 'header' => self::HEADER_NAME, 'all_requests' => (bool) get_option( self::OPT_ALL, 0 ) ],
 		];
 	}
 
@@ -104,18 +106,20 @@ final class BW_Bridge_Key {
 				return $result;
 			}
 		}
-		if ( self::accepts( (string) $request->get_header( self::HEADER ) ) ) {
+		$sent = (string) $request->get_header( self::HEADER );
+		if ( self::accepts( $sent ) ) {
 			return $result;
 		}
-		return new WP_Error(
-			'bw_bridge_key',
-			sprintf(
-				'Verbindungsschlüssel fehlt oder passt nicht zu dieser Website (%s, Kennung %s). Den Schlüssel unter Einstellungen › BW WP Bridge erzeugen und als WP_BRIDGE_KEY setzen.',
-				get_bloginfo( 'name' ),
-				self::site_id()
-			),
-			[ 'status' => 403, 'site_id' => self::site_id() ]
-		);
+		return new WP_Error( 'bw_bridge_key', self::error_message( '' !== $sent ), [ 'status' => 403, 'site_id' => self::site_id(), 'key_sent' => '' !== $sent, 'header' => self::HEADER_NAME ] );
+	}
+
+	/** Fehlermeldung: unterscheidet „kein Schlüssel angekommen“ (meist falscher Header-Name) von „falscher Schlüssel“. */
+	public static function error_message( $sent ) {
+		$site = sprintf( '%s, Kennung %s', get_bloginfo( 'name' ), self::site_id() );
+		if ( $sent ) {
+			return sprintf( 'Verbindungsschlüssel passt nicht zu dieser Website (%s). Den Schlüssel unter Einstellungen › BW WP Bridge erzeugen und als WP_BRIDGE_KEY setzen.', $site );
+		}
+		return sprintf( 'Verbindungsschlüssel fehlt: Bei dieser Website (%s) ist kein Schlüssel angekommen. Ihn im Header %s senden – mit Bindestrichen, nicht mit Unterstrichen (solche Header verwerfen viele Server). Der Schlüssel steht in WP_BRIDGE_KEY.', $site, self::HEADER_NAME );
 	}
 
 	/* ------------------------------------------------------------------ */

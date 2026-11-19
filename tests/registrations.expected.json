@@ -301,6 +301,15 @@
             []
         ],
         [
+            "bw-bridge/v1/debug-log",
+            "GET",
+            "debug_log",
+            "perm_admin",
+            [
+                "lines"
+            ]
+        ],
+        [
             "bw-bridge/v1/elementor/(?P<id>\\d+)",
             "GET",
             "get_elementor",
@@ -423,6 +432,15 @@
             ]
         ],
         [
+            "bw-bridge/v1/mail-test",
+            "POST",
+            "mail_test",
+            "perm_admin",
+            [
+                "to"
+            ]
+        ],
+        [
             "bw-bridge/v1/meta/(?P<id>\\d+)",
             "GET",
             "get_meta",
@@ -435,6 +453,22 @@
             "set_meta",
             "closure",
             []
+        ],
+        [
+            "bw-bridge/v1/permalinks",
+            "GET",
+            "get_permalinks",
+            "perm_admin",
+            []
+        ],
+        [
+            "bw-bridge/v1/permalinks",
+            "POST",
+            "set_permalinks",
+            "perm_admin",
+            [
+                "structure"
+            ]
         ],
         [
             "bw-bridge/v1/plugins",
@@ -593,6 +627,38 @@
             ]
         ],
         [
+            "bw-bridge/v1/themes",
+            "GET",
+            "list_themes",
+            "perm_admin",
+            []
+        ],
+        [
+            "bw-bridge/v1/themes/activate",
+            "POST",
+            "activate_theme",
+            "perm_switch",
+            [
+                "stylesheet"
+            ]
+        ],
+        [
+            "bw-bridge/v1/themes/delete",
+            "POST",
+            "delete_theme",
+            "perm_delete",
+            [
+                "stylesheet"
+            ]
+        ],
+        [
+            "bw-bridge/v1/themes/install",
+            "POST",
+            "install_theme",
+            "perm_install",
+            []
+        ],
+        [
             "bw-bridge/v1/translations/(?P<id>\\d+)",
             "GET",
             "translations",
@@ -710,7 +776,8 @@
             "authorization": true,
             "redirect_authorization": false,
             "php_auth_user": false,
-            "x_wp_authorization": false
+            "x_wp_authorization": false,
+            "bridge_key": false
         },
         "server_php_auth_user": "u"
     }

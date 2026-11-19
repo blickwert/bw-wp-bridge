@@ -1,5 +1,11 @@
 # BW WP Bridge
 
+> **WICHTIG: Keine Website-Inhalte in diesem Repo.** Die Bridge ist ein Hilfs-Plugin für beliebige Websites.
+> Inhaltsbezogene Informationen einer angebundenen Website (Texte, Seitenstruktur, Datenmodelle, Feldlisten,
+> Analysen, Befunde, Namen, Adressen oder Zugangsdaten) werden **niemals** in diesem Repo, im Plugin-Code,
+> in Tests, Commit-Nachrichten, PR-Beschreibungen oder Issues gespeichert. Sie gehören in das jeweilige
+> Projekt-Repo der Website. Hier landen nur allgemeine Erweiterungen der Bridge.
+
 Ermöglicht Claude Code (oder jedem anderen Skript), eine WordPress-Installation über die REST-API zu bearbeiten:
 Seiten, Beiträge, CPT-Einträge, Medien, Menüs, Benutzer und Einstellungen über die Standard-API von WordPress,
 dazu über dieses Plugin:
@@ -211,10 +217,13 @@ Website) und ist ein zweiter Faktor neben dem Anwendungspasswort.
 
 1. Einstellungen › BW WP Bridge › **Verbindungsschlüssel › „Schlüssel und Zugangsdaten erzeugen“**. Das Plugin legt dabei den Administrator-Benutzer `claude` (`claude@blickwert.at`) an, falls er fehlt, und erzeugt für ihn das Anwendungspasswort „claude-code“ (ein früheres gleichen Namens wird ersetzt) und zeigt **einmalig** einen fertigen Block mit `WP_<NAME>_URL`, `_USER`, `_APP_PASSWORD`, `_BRIDGE_KEY` und `_BRIDGE_SITE` zum Kopieren an. In der Datenbank liegt nur ein Hash des Schlüssels.
 2. Im Client eintragen: `WP_BRIDGE_KEY=bwk_…` (zusammen mit `WP_URL`, `WP_USER`, `WP_APP_PASSWORD`). Nicht in einen Chat einfügen.
+   Der Client sendet ihn bei jeder Anfrage im Header **`X-BW-Bridge-Key`** – mit Bindestrichen. Eigene Clients (curl, Skripte) nie `x_bw_bridge_key`
+   schreiben: Header mit Unterstrichen verwerfen nginx und viele Proxys stillschweigend, der Schlüssel kommt dann nicht an.
 3. Optional die **Kennung** der Website (8 Zeichen, nicht geheim, steht auf der Einstellungsseite) als `WP_BRIDGE_SITE` eintragen: Der Client prüft dann vor jeder
    Anfrage, ob er mit der richtigen Website verbunden ist, und bricht sonst ab, bevor etwas gesendet wird.
 
 - Ohne Schlüssel (oder mit falschem) antworten alle Bridge-Routen mit `403 bw_bridge_key` und nennen Website und Kennung. Ausgenommen sind `status` (zeigt dann nur Name, Adresse, Kennung) und `auth-check`.
+- Die Meldung unterscheidet: **„Verbindungsschlüssel fehlt“** heißt, es ist gar kein Schlüssel angekommen (meist falscher Header-Name), **„passt nicht“** heißt, der Schlüssel ist falsch. `status` zeigt dasselbe in `key.sent`, `auth-check` in `headers_seen.bridge_key`.
 - `wp_bridge.py status` zeigt: `Verbunden mit: <Name> (<Adresse>) · Kennung … · Schlüssel ok`.
 - Standardmäßig gilt die Prüfung nur für die Bridge-Routen. Mit „Schlüssel für alle REST-Anfragen“ wird sie auf jede REST-Anfrage ausgedehnt, die per Anwendungspasswort kommt.
 - „Neuen Schlüssel erzeugen“ macht den alten ungültig (die Kennung bleibt). „Schlüssel entfernen“ schaltet die Prüfung wieder aus. Ist kein Schlüssel eingerichtet, ändert sich nichts.
@@ -239,9 +248,23 @@ Beispiel: `WP_SOULDATE_URL`, `WP_SOULDATE_USER`, `WP_SOULDATE_APP_PASSWORD`, `WP
 - `wp_bridge.py sites` listet die eingetragenen Websites (ohne Geheimnisse, ohne Verbindung).
 - Der bisherige einzelne Satz (`WP_URL`, `WP_USER`, `WP_APP_PASSWORD`, …) funktioniert unverändert und heißt dann `default`.
 
+## Website einrichten: Themes, Permalinks, Testmail, Fehlerprotokoll (ab 1.10)
+
+| Aufgabe | Aufruf | Voraussetzung |
+|---|---|---|
+| Themes auflisten (meldet auch ein aktives Theme, dessen Ordner fehlt) | `themes` | Administrator |
+| Theme installieren | `theme-install --zip theme.zip --activate` (auch `--slug`, `--url`, `--overwrite`) | Freigabe „Plugins und Themes installieren …“, `install_themes` |
+| Theme aktivieren | `theme-activate perma-mind` | `switch_themes`; fehlerhafte Themes werden abgelehnt |
+| Theme löschen (nicht das aktive oder dessen Eltern-Theme) | `theme-delete hello-biz` | Freigabe, `delete_themes` |
+| Permalinks anzeigen / setzen | `permalinks`, `permalinks --set "/%postname%/"` | Administrator; Rewrite-Regeln werden neu aufgebaut |
+| Testmail über `wp_mail` | `mail-test [--to adresse]` | Administrator; höchstens 10 pro Stunde; meldet Fehler von PHPMailer und den Versandweg |
+| Fehlerprotokoll lesen | `debug-log -n 100` | Administrator; nur lesen, letzte höchstens 500 Zeilen; braucht `WP_DEBUG_LOG` |
+
+Themes werden mit denselben ZIP-Prüfungen installiert wie Plugins (siehe unten).
+
 ## Plugins installieren und aktualisieren (optional)
 
-Mit der Freigabe **„Plugins installieren und aktualisieren“** (Einstellungen › BW WP Bridge, **standardmäßig aus**) kann die Bridge
+Mit der Freigabe **„Plugins und Themes installieren und aktualisieren“** (Einstellungen › BW WP Bridge, **standardmäßig aus**) kann die Bridge
 Plugins einspielen – auch eigene oder gekaufte, die nicht im wordpress.org-Verzeichnis liegen. Das Auflisten (`plugins`) geht immer.
 
 | Quelle | Aufruf |
