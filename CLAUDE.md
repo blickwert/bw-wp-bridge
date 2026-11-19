@@ -1,5 +1,11 @@
 # Hinweise für Claude
 
+> **WICHTIG: Keine Website-Inhalte in diesem Repo.** Die Bridge ist ein Hilfs-Plugin für beliebige Websites.
+> Inhaltsbezogene Informationen einer angebundenen Website (Texte, Seitenstruktur, Datenmodelle, Feldlisten,
+> Analysen, Befunde, Namen, Adressen oder Zugangsdaten) werden **niemals** in diesem Repo, im Plugin-Code,
+> in Tests, Commit-Nachrichten, PR-Beschreibungen oder Issues gespeichert. Sie gehören in das jeweilige
+> Projekt-Repo der Website. Hier landen nur allgemeine Erweiterungen der Bridge.
+
 ## Versionsnummer
 
 Mit jedem Merge in `main` die Plugin-Version erhöhen, in `bw-wp-bridge.php` an beiden Stellen (Kopfzeile `Version:` und Konstante `BW_WP_BRIDGE_VERSION`). Die Stufe wählt Claude selbst nach Wichtigkeit (Semantic Versioning):

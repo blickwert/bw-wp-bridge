@@ -1,5 +1,11 @@
 # BW WP Bridge
 
+> **WICHTIG: Keine Website-Inhalte in diesem Repo.** Die Bridge ist ein Hilfs-Plugin für beliebige Websites.
+> Inhaltsbezogene Informationen einer angebundenen Website (Texte, Seitenstruktur, Datenmodelle, Feldlisten,
+> Analysen, Befunde, Namen, Adressen oder Zugangsdaten) werden **niemals** in diesem Repo, im Plugin-Code,
+> in Tests, Commit-Nachrichten, PR-Beschreibungen oder Issues gespeichert. Sie gehören in das jeweilige
+> Projekt-Repo der Website. Hier landen nur allgemeine Erweiterungen der Bridge.
+
 Ermöglicht Claude Code (oder jedem anderen Skript), eine WordPress-Installation über die REST-API zu bearbeiten:
 Seiten, Beiträge, CPT-Einträge, Medien, Menüs, Benutzer und Einstellungen über die Standard-API von WordPress,
 dazu über dieses Plugin:
