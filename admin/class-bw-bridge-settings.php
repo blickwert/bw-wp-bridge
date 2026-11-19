@@ -124,7 +124,7 @@ final class BW_Bridge_Settings {
 		if ( $parent && $parent->exists() ) {
 			self::checkbox_row( self::OPT_PARENT, 'Parent-Theme einbeziehen', 'Zusätzlich das Parent-Theme „' . esc_html( $parent->get( 'Name' ) ) . '“ (Ordner <code>' . esc_html( $parent->get_stylesheet() ) . '</code>) freigeben.' );
 		}
-		self::checkbox_row( self::OPT_PLUGINS, 'Plugins installieren und aktualisieren', 'Plugins aus dem wordpress.org-Verzeichnis, aus einer https-ZIP-Adresse oder aus einem hochgeladenen ZIP installieren (auf Wunsch aktivieren) und Plugins aktualisieren. Braucht zusätzlich die Rechte <code>install_plugins</code> / <code>update_plugins</code>. Auflisten der Plugins ist immer möglich.' );
+		self::checkbox_row( self::OPT_PLUGINS, 'Plugins und Themes installieren und aktualisieren', 'Plugins und Themes aus dem wordpress.org-Verzeichnis, aus einer https-ZIP-Adresse oder aus einem hochgeladenen ZIP installieren (auf Wunsch aktivieren), Plugins aktualisieren und nicht aktive Themes löschen. Braucht zusätzlich die Rechte <code>install_plugins</code> / <code>update_plugins</code> bzw. <code>install_themes</code> / <code>delete_themes</code>. Auflisten ist immer möglich; ein Theme aktivieren braucht keine Freigabe (Recht <code>switch_themes</code>).' );
 		self::checkbox_row( BW_Bridge_Key::OPT_ALL, 'Schlüssel für alle REST-Anfragen', 'Den Verbindungsschlüssel nicht nur für die Bridge-Routen verlangen, sondern für jede REST-Anfrage, die per Anwendungspasswort kommt (z. B. auch andere Programme mit einem Anwendungspasswort). Wirkt nur, wenn oben ein Schlüssel eingerichtet ist.' );
 		if ( ! BW_Bridge_Log::disabled() ) {
 			BW_Bridge_Maintenance::settings_rows();

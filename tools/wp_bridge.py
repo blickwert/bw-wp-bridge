@@ -61,6 +61,15 @@ Theme-Dateien (nur wenn im Backend unter Einstellungen › BW WP Bridge freigesc
   wp_bridge.py plugin-install --url https://…/plugin.zip --activate [--overwrite]
   wp_bridge.py plugin-install --zip lokal.zip --activate [--overwrite]
   wp_bridge.py plugin-update ordner/datei.php          # aktualisieren (Freigabe im Backend nötig)
+
+Website einrichten (ab Bridge 1.10):
+  wp_bridge.py themes                                  # installierte Themes (auch: aktives Theme fehlt)
+  wp_bridge.py theme-install --zip theme.zip --activate [--overwrite]   # auch --slug / --url (Freigabe nötig)
+  wp_bridge.py theme-activate perma-mind
+  wp_bridge.py theme-delete hello-biz                  # nur nicht aktive Themes (Freigabe nötig)
+  wp_bridge.py permalinks [--set /%postname%/]         # anzeigen bzw. setzen (Regeln werden neu aufgebaut)
+  wp_bridge.py mail-test [--to adresse@example.at]     # Testmail über wp_mail (Standard: Administrator-Adresse)
+  wp_bridge.py debug-log [-n 100]                      # letzte Zeilen aus debug.log
   wp_bridge.py theme-ls woocommerce/emails -r          # Ordner auflisten (-r rekursiv)
   wp_bridge.py theme-get woocommerce/emails/customer-new-account.php -o alt.php
   wp_bridge.py theme-put woocommerce/emails/customer-new-account.php neu.php   # legt Sicherung an
@@ -243,6 +252,54 @@ def plugins_command(c, a):
             print("aktualisiert: %s %s → %s" % (r["plugin"], r["old_version"], r["version"]))
         else:
             print("%s %s: %s" % (r["plugin"], r["version"], r["message"]))
+
+
+def site_command(c, a):
+    if a.cmd == "themes":
+        for t in c.request("GET", "bw-bridge/v1/themes"):
+            flags = ("aktiv" if t["active"] else "-")
+            extra = "FEHLT (Ordner nicht vorhanden)" if t.get("missing") else ("Block-Theme" if t.get("block_theme") else "")
+            if t.get("parent"):
+                extra += " (Eltern: %s)" % t["parent"]
+            if t.get("errors") and not t.get("missing"):
+                extra += " FEHLER: " + t["errors"]
+            print("%-7s %-30s %-10s %s" % (flags, t["stylesheet"], t.get("version") or "", extra))
+    elif a.cmd == "theme-install":
+        given = [x for x in (a.slug, a.url, a.zip) if x]
+        if len(given) != 1:
+            sys.exit("Genau eine Quelle angeben: --slug, --url oder --zip.")
+        body = {"activate": a.activate, "overwrite": a.overwrite}
+        if a.slug:
+            body["slug"] = a.slug
+        elif a.url:
+            body["url"] = a.url
+        else:
+            with open(a.zip, "rb") as fh:
+                body["zip_base64"] = base64.b64encode(fh.read()).decode()
+        r = c.request("POST", "bw-bridge/v1/themes/install", body)
+        print("installiert: %s %s%s" % (r["stylesheet"], r["version"], " (aktiviert)" if r["activated"] else ""))
+        for m in r.get("messages", []):
+            print("  ", m)
+    elif a.cmd == "theme-activate":
+        r = c.request("POST", "bw-bridge/v1/themes/activate", {"stylesheet": a.stylesheet})
+        print("aktiv: %s %s" % (r["stylesheet"], r["version"]))
+    elif a.cmd == "theme-delete":
+        r = c.request("POST", "bw-bridge/v1/themes/delete", {"stylesheet": a.stylesheet})
+        print("gelöscht: %s" % r["stylesheet"])
+    elif a.cmd == "permalinks":
+        r = c.request("POST", "bw-bridge/v1/permalinks", {"structure": a.set}) if a.set is not None else c.request("GET", "bw-bridge/v1/permalinks")
+        print("Struktur: %s · Beispiel: %s" % (r["structure"] or "(einfach, ?p=123)", r["example"]))
+    elif a.cmd == "mail-test":
+        r = c.request("POST", "bw-bridge/v1/mail-test", {"to": a.to} if a.to else {})
+        print("%s an %s · Absender %s · Versand über %s" % ("übergeben" if r["sent"] else "FEHLGESCHLAGEN", r["to"], r["from"], r["mailer"]))
+        if r.get("error"):
+            print("  Fehler:", r["error"])
+        print("  " + r["note"])
+    elif a.cmd == "debug-log":
+        r = c.request("GET", "bw-bridge/v1/debug-log", None, [("lines", a.lines)])
+        print("\n".join(r["lines"]))
+        state = "WP_DEBUG %s, WP_DEBUG_LOG %s" % ("an" if r["wp_debug"] else "aus", "an" if r["wp_debug_log"] else "aus")
+        print("— %s · %d Zeilen%s" % (state, len(r["lines"]), (" · " + r["note"]) if r.get("note") else ""), file=sys.stderr)
 
 
 def theme_command(c, a):
@@ -558,6 +615,15 @@ def main():
     s.add_argument("--slug", help="wordpress.org-Slug"); s.add_argument("--url", help="https-Adresse eines ZIP"); s.add_argument("--zip", help="lokale ZIP-Datei")
     s.add_argument("--activate", action="store_true"); s.add_argument("--overwrite", action="store_true", help="vorhandenes Plugin ersetzen (Update/Downgrade)")
     s = sub.add_parser("plugin-update", help="Plugin aktualisieren (Freigabe im Backend nötig)"); s.add_argument("plugin", help="ordner/datei.php")
+    sub.add_parser("themes", help="Installierte Themes auflisten")
+    s = sub.add_parser("theme-install", help="Theme installieren (Freigabe im Backend nötig)")
+    s.add_argument("--slug", help="wordpress.org-Slug"); s.add_argument("--url", help="https-Adresse eines ZIP"); s.add_argument("--zip", help="lokale ZIP-Datei")
+    s.add_argument("--activate", action="store_true"); s.add_argument("--overwrite", action="store_true", help="vorhandenes Theme ersetzen")
+    s = sub.add_parser("theme-activate", help="Theme aktivieren"); s.add_argument("stylesheet")
+    s = sub.add_parser("theme-delete", help="Nicht aktives Theme löschen (Freigabe im Backend nötig)"); s.add_argument("stylesheet")
+    s = sub.add_parser("permalinks", help="Permalink-Struktur anzeigen oder setzen"); s.add_argument("--set", metavar="STRUKTUR", help='z. B. "/%%postname%%/" oder "" für einfache Links')
+    s = sub.add_parser("mail-test", help="Testmail über wp_mail senden"); s.add_argument("--to")
+    s = sub.add_parser("debug-log", help="Letzte Zeilen aus debug.log"); s.add_argument("-n", "--lines", type=int, default=100)
     s = sub.add_parser("theme-ls", help="Ordner im Theme auflisten")
     s.add_argument("path", nargs="?", default=""); s.add_argument("-r", "--recursive", action="store_true")
     s = sub.add_parser("theme-get", help="Datei aus dem Theme lesen")
@@ -685,6 +751,8 @@ def main():
         meta_command(c, a)
     elif a.cmd == "batch":
         batch_command(c, a)
+    elif a.cmd in ("themes", "theme-install", "theme-activate", "theme-delete", "permalinks", "mail-test", "debug-log"):
+        site_command(c, a)
     elif a.cmd.startswith("theme-"):
         theme_command(c, a)
     elif a.cmd in ("plugins", "plugin-install", "plugin-update"):

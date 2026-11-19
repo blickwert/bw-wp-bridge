@@ -4,7 +4,7 @@ defined( 'ABSPATH' ) || exit;
 /**
  * Plugins auflisten, installieren und aktualisieren (Installieren/Aktualisieren optional, standardmäßig AUS).
  *
- * Freischaltung nur im Backend: Einstellungen › BW WP Bridge (Option "Plugins installieren und aktualisieren").
+ * Freischaltung nur im Backend: Einstellungen › BW WP Bridge (Option "Plugins und Themes installieren und aktualisieren").
  * Die Option ist nicht über die REST-API änderbar. Zusätzlich gilt: Benutzer mit manage_options und
  * install_plugins (Überschreiben/Aktualisieren: update_plugins, Aktivieren: activate_plugins); fällt weg bei
  * DISALLOW_FILE_MODS in der wp-config.php. Hart abschalten: define( 'BW_WP_BRIDGE_PLUGINS_DISABLED', true );
@@ -56,7 +56,7 @@ final class BW_Bridge_Plugins {
 			return false;
 		}
 		if ( ! BW_Bridge_Settings::can_install_plugins_enabled() ) {
-			return new WP_Error( 'bw_bridge_plugins_disabled', 'Plugin-Installation ist aus. Im Backend unter Einstellungen › BW WP Bridge „Plugins installieren und aktualisieren“ aktivieren.', [ 'status' => 403 ] );
+			return new WP_Error( 'bw_bridge_plugins_disabled', 'Plugin-Installation ist aus. Im Backend unter Einstellungen › BW WP Bridge „Plugins und Themes installieren und aktualisieren“ aktivieren.', [ 'status' => 403 ] );
 		}
 		if ( BW_Bridge_Settings::config_blocks_plugins() || ! current_user_can( 'install_plugins' ) ) {
 			return new WP_Error( 'bw_bridge_plugins_forbidden', 'Der Benutzer darf keine Plugins installieren (Recht install_plugins fehlt oder DISALLOW_FILE_MODS ist gesetzt).', [ 'status' => 403 ] );
@@ -236,7 +236,7 @@ final class BW_Bridge_Plugins {
 	}
 
 	/** Lädt ein ZIP herunter (wp_safe_remote_get: keine internen Adressen) und gibt den Pfad der Temp-Datei zurück. */
-	private static function download( $url ) {
+	public static function download( $url ) {
 		$ok = self::check_url( $url );
 		if ( true !== $ok ) {
 			return $ok;
@@ -249,7 +249,7 @@ final class BW_Bridge_Plugins {
 	}
 
 	/** Speichert ein base64-kodiertes ZIP in einer Temp-Datei. */
-	private static function store_base64( $b64 ) {
+	public static function store_base64( $b64 ) {
 		if ( strlen( $b64 ) > (int) ceil( self::MAX_ZIP * 4 / 3 ) + 8 ) {
 			return new WP_Error( 'bw_bridge_plugins_zip', 'ZIP ist zu groß (max. 50 MB).', [ 'status' => 413 ] );
 		}
@@ -310,7 +310,7 @@ final class BW_Bridge_Plugins {
 		return $p;
 	}
 
-	private static function load_admin_files() {
+	public static function load_admin_files() {
 		foreach ( [ 'file', 'plugin', 'misc', 'class-wp-upgrader', 'plugin-install' ] as $f ) {
 			require_once ABSPATH . 'wp-admin/includes/' . $f . '.php';
 		}
@@ -324,12 +324,12 @@ final class BW_Bridge_Plugins {
 		return $extra + [ 'plugin' => $file, 'name' => $data['Name'], 'version' => $data['Version'], 'active' => is_plugin_active( $file ) ];
 	}
 
-	private static function skin_errors( $skin ) {
+	public static function skin_errors( $skin ) {
 		$err = method_exists( $skin, 'get_errors' ) ? $skin->get_errors() : null;
 		return ( $err && is_wp_error( $err ) && $err->has_errors() ) ? implode( ' ', $err->get_error_messages() ) : '';
 	}
 
-	private static function skin_messages( $skin ) {
+	public static function skin_messages( $skin ) {
 		$m = method_exists( $skin, 'get_upgrade_messages' ) ? $skin->get_upgrade_messages() : [];
 		return array_values( array_map( 'wp_strip_all_tags', (array) $m ) );
 	}
